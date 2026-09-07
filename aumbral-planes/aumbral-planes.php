@@ -599,8 +599,8 @@ final class AUmbral_Planes {
     <input type="hidden" name="action" value="aumbral_planes_accion">
     <input type="hidden" name="id" value="<?php echo (int) $f['submission_id']; ?>">
     <?php if ( $f['estado'] === 'pendiente' ) : ?>
-     <button class="b<?php echo $f['lleva_inicio'] ? '' : ' p'; ?>" name="que" value="cargado_directo">Cargado directo</button>
-     <button class="b<?php echo $f['lleva_inicio'] ? ' p' : ''; ?>" name="que" value="cargado_inicio">Cargado + 2 semanas</button>
+     <button class="b<?php echo $f['lleva_inicio'] ? '' : ' p'; ?>" name="que" value="cargado_directo">Plan cargado</button>
+     <button class="b<?php echo $f['lleva_inicio'] ? ' p' : ''; ?>" name="que" value="cargado_inicio">Cargado plan inicio</button>
      <button class="b o" name="que" value="descartar">Descartar</button>
     <?php elseif ( $f['estado'] === 'inicio' ) : ?>
      <button class="b p" name="que" value="plan_real">Pasado al plan real</button>
