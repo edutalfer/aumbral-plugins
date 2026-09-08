@@ -128,6 +128,11 @@ final class AUP_Pagos {
 			foreach ( wcs_get_subscriptions_for_renewal_order( $oid ) as $s ) $subs[ $s->get_id() ] = $s;
 		}
 
+		// 1b) Altas que nunca llegaron a pagar (el fallo fue el pedido inicial, no una renovación)
+		foreach ( wcs_get_subscriptions( array( 'subscription_status' => array( 'on-hold', 'pending' ), 'subscriptions_per_page' => -1 ) ) as $s ) {
+			$subs[ $s->get_id() ] = $s;
+		}
+
 		// 2) Suscripciones en espera (aunque el fallo sea antiguo)
 		foreach ( wcs_get_subscriptions( array( 'subscription_status' => 'on-hold', 'subscriptions_per_page' => -1 ) ) as $s ) {
 			$subs[ $s->get_id() ] = $s;
@@ -150,7 +155,7 @@ final class AUP_Pagos {
 			if ( $c ) $out[ $id ] = $c;
 		}
 		// Orden: CONTACTAR → REVISAR → ESPERAR → PERDIDA → RESUELTO, y dentro por días de fallo desc
-		$peso = array( 'CONTACTAR' => 0, 'REVISAR' => 1, 'ESPERAR' => 2, 'PERDIDA' => 3, 'DUPLICADA' => 4, 'SUSTITUIDA' => 5, 'RESUELTO' => 6 );
+		$peso = array( 'CONTACTAR' => 0, 'REVISAR' => 1, 'ESPERAR' => 2, 'ALTA' => 3, 'PERDIDA' => 4, 'DUPLICADA' => 5, 'SUSTITUIDA' => 6, 'RESUELTO' => 7 );
 		uasort( $out, function ( $a, $b ) use ( $peso ) {
 			if ( $a['gestionado'] !== $b['gestionado'] ) return $a['gestionado'] ? 1 : -1;
 			if ( $peso[ $a['veredicto'] ] !== $peso[ $b['veredicto'] ] ) return $peso[ $a['veredicto'] ] - $peso[ $b['veredicto'] ];
@@ -161,8 +166,20 @@ final class AUP_Pagos {
 
 	/** Construye el caso de una suscripción. */
 	public function caso( WC_Subscription $s ) {
-		$o = $s->get_last_order( 'all', array( 'renewal' ) );
-		if ( ! $o ) return null;
+		$o    = $s->get_last_order( 'all', array( 'renewal' ) );
+		$alta = false;
+		if ( ! $o ) {
+			// Sin renovaciones: puede ser un alta que nunca se completó
+			$p = $s->get_parent();
+			if ( ! $p ) return null;
+			$pagado = false;
+			foreach ( $s->get_related_orders( 'all', 'any' ) as $ro ) {
+				if ( in_array( $ro->get_status(), array( 'processing', 'completed' ), true ) ) { $pagado = true; break; }
+			}
+			if ( $pagado ) return null;   // pagó alguna vez: no es un alta fallida
+			$o    = $p;
+			$alta = true;
+		}
 
 		$oid    = $o->get_id();
 		$ostat  = $o->get_status();
@@ -187,7 +204,9 @@ final class AUP_Pagos {
 
 		// Veredicto
 		$agotado = ( $pend === 0 && in_array( $ostat, array( 'failed', 'pending' ), true ) );
-		if ( in_array( $sstat, array( 'cancelled', 'expired' ), true ) && in_array( $ostat, array( 'failed', 'pending', 'cancelled' ), true ) ) {
+		if ( $alta ) {
+			$v = in_array( $ostat, array( 'processing', 'completed' ), true ) ? 'RESUELTO' : 'ALTA';
+		} elseif ( in_array( $sstat, array( 'cancelled', 'expired' ), true ) && in_array( $ostat, array( 'failed', 'pending', 'cancelled' ), true ) ) {
 			$v = 'PERDIDA';
 		} elseif ( in_array( $ostat, array( 'processing', 'completed' ), true ) ) {
 			$v = 'RESUELTO';
@@ -205,6 +224,9 @@ final class AUP_Pagos {
 		if ( $v === 'CONTACTAR' && $agotado && ! $def['duro'] ) $accion = 'Reintentos agotados. Escríbele con el enlace de pago: Stripe ya no lo va a intentar.';
 		if ( $v === 'PERDIDA' )  $accion = 'Suscripción cancelada tras los fallos. Solo recuperable con un mensaje personal y alta nueva.';
 		if ( $v === 'RESUELTO' ) $accion = 'Un reintento cobró. Nada que hacer.';
+		if ( $v === 'ALTA' ) {
+			$accion = sprintf( 'Se dio de alta el %s y el primer pago nunca llegó a completarse: no ha pagado ni un euro. No hay reintentos programados, así que solo se activa si él paga el enlace. Precio congelado de entonces: %s.', wp_date( 'd/m/Y', strtotime( $s->get_date( 'start_date' ) ) ), html_entity_decode( wp_strip_all_tags( wc_price( $o->get_total() ) ), ENT_QUOTES, 'UTF-8' ) );
+		}
 		if ( $v === 'ESPERAR' && $prox ) $accion .= ' Próximo reintento: ' . $this->f( $prox ) . '.';
 
 		// ¿El cliente se dio de alta otra vez después de este fallo?
@@ -229,6 +251,11 @@ final class AUP_Pagos {
 		$url_cambio = method_exists( $s, 'get_change_payment_method_url' ) ? $s->get_change_payment_method_url() : $s->get_view_order_url();
 		$url_pago   = ( $o->needs_payment() ) ? $o->get_checkout_payment_url() : '';
 
+		$mensaje = $this->mensaje( $def, $s->get_billing_first_name() ?: 'ciclista', $url_cambio, $url_pago );
+		if ( $v === 'ALTA' ) {
+			$mensaje = "Hola " . ( $s->get_billing_first_name() ?: 'ciclista' ) . ",\n\nRevisando la plataforma he visto que tu alta del " . wp_date( 'j \d\e F \d\e Y', strtotime( $s->get_date( 'start_date' ) ) ) . " se quedó a medias: el primer pago no llegó a completarse y la suscripción nunca se activó.\n\nSi te quedaste con ganas, aquí puedes terminarlo, y mantienes la tarifa de entonces:\n\n" . ( $url_pago ?: $url_cambio ) . "\n\nY si ya no te interesa, dímelo y lo cierro sin más. Sin compromiso.\n\nEduardo Talavera\nFundador y Entrenador en A Umbral";
+		}
+
 		return array(
 			'sub_id'      => $s->get_id(),
 			'sub_status'  => $sstat,
@@ -237,7 +264,7 @@ final class AUP_Pagos {
 			'cliente'     => $nombre,
 			'nombre_pila' => $s->get_billing_first_name() ?: 'ciclista',
 			'email'       => $s->get_billing_email(),
-			'importe'     => wp_strip_all_tags( wc_price( $o->get_total() ) ) . ' / ' . $this->periodo( $s ),
+			'importe'     => html_entity_decode( wp_strip_all_tags( wc_price( $o->get_total() ) ), ENT_QUOTES, 'UTF-8' ) . ' / ' . $this->periodo( $s ),
 			'fecha'       => $fecha,
 			'dias'        => $dias,
 			'reintentos'  => $hechos,
@@ -249,7 +276,7 @@ final class AUP_Pagos {
 			'motivo_raw'  => $bruto,
 			'veredicto'   => $v,
 			'accion'      => $accion,
-			'mensaje'     => $this->mensaje( $def, $s->get_billing_first_name() ?: 'ciclista', $url_cambio, $url_pago ),
+			'mensaje'     => $mensaje,
 			'url_cambio'  => $url_cambio,
 			'url_pago'    => $url_pago,
 			'url_admin'   => admin_url( 'post.php?post=' . $s->get_id() . '&action=edit' ),
@@ -420,13 +447,13 @@ final class AUP_Pagos {
 
 	public function digest() {
 		$c  = $this->casos();
-		$g  = array( 'CONTACTAR' => array(), 'REVISAR' => array(), 'ESPERAR' => array(), 'PERDIDA' => array(), 'DUPLICADA' => array(), 'SUSTITUIDA' => array(), 'RESUELTO' => array() );
+		$g  = array( 'CONTACTAR' => array(), 'REVISAR' => array(), 'ESPERAR' => array(), 'ALTA' => array(), 'PERDIDA' => array(), 'DUPLICADA' => array(), 'SUSTITUIDA' => array(), 'RESUELTO' => array() );
 		foreach ( $c as $x ) if ( ! $x['gestionado'] ) $g[ $x['veredicto'] ][] = $x;
 
 		$h  = '<h1>Revisión de pagos · semana del ' . $this->f( time(), 'd/m' ) . '</h1>';
 		$h .= '<p class="kpi"><b style="color:#ed4044">' . count( $g['CONTACTAR'] ) . '</b> contactar &nbsp;·&nbsp; <b>' . count( $g['REVISAR'] ) . '</b> revisar &nbsp;·&nbsp; <b>' . count( $g['ESPERAR'] ) . '</b> esperar &nbsp;·&nbsp; <b>' . count( $g['PERDIDA'] ) . '</b> perdidas &nbsp;·&nbsp; <b>' . count( $g['RESUELTO'] ) . '</b> resueltas solas</p>';
 
-		$tit = array( 'CONTACTAR' => 'Escribir hoy', 'REVISAR' => 'Revisar a mano', 'ESPERAR' => 'Esperando reintentos', 'PERDIDA' => 'Perdidas (últimos ' . self::VENTANA . ' días)', 'DUPLICADA' => 'Duplicadas (gestiona la más reciente)', 'SUSTITUIDA' => 'El cliente se dio de alta otra vez', 'RESUELTO' => 'Resueltas solas (14 días)' );
+		$tit = array( 'CONTACTAR' => 'Escribir hoy', 'REVISAR' => 'Revisar a mano', 'ESPERAR' => 'Esperando reintentos', 'ALTA' => 'Altas que nunca se completaron', 'PERDIDA' => 'Perdidas (últimos ' . self::VENTANA . ' días)', 'DUPLICADA' => 'Duplicadas (gestiona la más reciente)', 'SUSTITUIDA' => 'El cliente se dio de alta otra vez', 'RESUELTO' => 'Resueltas solas (14 días)' );
 		foreach ( $tit as $k => $t ) {
 			if ( ! $g[ $k ] ) continue;
 			$h .= '<h2>' . $t . '</h2>';
@@ -439,7 +466,7 @@ final class AUP_Pagos {
 	}
 
 	private function email_caso( $x, $con_mensaje = false ) {
-		$col = array( 'CONTACTAR' => '#ed4044', 'REVISAR' => '#ed4044', 'ESPERAR' => '#292929', 'PERDIDA' => '#8a8a8a', 'DUPLICADA' => '#8a8a8a', 'SUSTITUIDA' => '#2d7a3a', 'RESUELTO' => '#2d7a3a' );
+		$col = array( 'CONTACTAR' => '#ed4044', 'REVISAR' => '#ed4044', 'ESPERAR' => '#292929', 'ALTA' => '#8a6d3b', 'PERDIDA' => '#8a8a8a', 'DUPLICADA' => '#8a8a8a', 'SUSTITUIDA' => '#2d7a3a', 'RESUELTO' => '#2d7a3a' );
 		$h  = '<table width="100%" cellpadding="0" cellspacing="0" style="border-top:2px solid ' . $col[ $x['veredicto'] ] . ';margin:14px 0;background:#fff"><tr><td style="padding:14px 16px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;color:#1a1a1a">';
 		$h .= '<div><span style="background:' . $col[ $x['veredicto'] ] . ';color:#fff;padding:2px 8px;font-size:11px;letter-spacing:.08em">' . $x['veredicto'] . '</span> &nbsp; <b>' . esc_html( $x['cliente'] ) . '</b> &nbsp;<span style="color:#666">' . esc_html( $x['email'] ) . '</span></div>';
 		$h .= '<div style="margin-top:6px;color:#444">' . esc_html( $x['importe'] ) . ' · fallo hace ' . $x['dias'] . ' d · reintentos ' . $x['reintentos'] . ( $x['pendientes'] ? ' (+' . $x['pendientes'] . ' programado)' : '' ) . '</div>';
@@ -470,7 +497,7 @@ final class AUP_Pagos {
 		$casos  = $this->casos();
 		$filtro = sanitize_key( $_GET['v'] ?? 'abiertos' );
 		$o      = $this->opts();
-		$n = array( 'CONTACTAR' => 0, 'REVISAR' => 0, 'ESPERAR' => 0, 'PERDIDA' => 0, 'DUPLICADA' => 0, 'SUSTITUIDA' => 0, 'RESUELTO' => 0, 'gestionados' => 0 );
+		$n = array( 'CONTACTAR' => 0, 'REVISAR' => 0, 'ESPERAR' => 0, 'ALTA' => 0, 'PERDIDA' => 0, 'DUPLICADA' => 0, 'SUSTITUIDA' => 0, 'RESUELTO' => 0, 'gestionados' => 0 );
 		foreach ( $casos as $x ) { if ( $x['gestionado'] ) $n['gestionados']++; else $n[ $x['veredicto'] ]++; }
 		$abiertos = $n['CONTACTAR'] + $n['REVISAR'] + $n['ESPERAR'];
 
@@ -539,7 +566,7 @@ final class AUP_Pagos {
 
 			<div class="kpis">
 				<?php
-				$tabs = array( 'abiertos' => array( 'Abiertos', $abiertos, '' ), 'contactar' => array( 'Contactar', $n['CONTACTAR'], 'c' ), 'esperar' => array( 'Esperar', $n['ESPERAR'], '' ), 'perdida' => array( 'Perdidas', $n['PERDIDA'], '' ), 'sustituida' => array( 'Re-alta', $n['SUSTITUIDA'] + $n['DUPLICADA'], '' ), 'resuelto' => array( 'Resueltas', $n['RESUELTO'], '' ), 'gestionados' => array( 'Gestionados', $n['gestionados'], '' ) );
+				$tabs = array( 'abiertos' => array( 'Abiertos', $abiertos, '' ), 'contactar' => array( 'Contactar', $n['CONTACTAR'], 'c' ), 'esperar' => array( 'Esperar', $n['ESPERAR'], '' ), 'alta' => array( 'Altas', $n['ALTA'], '' ), 'perdida' => array( 'Perdidas', $n['PERDIDA'], '' ), 'sustituida' => array( 'Re-alta', $n['SUSTITUIDA'] + $n['DUPLICADA'], '' ), 'resuelto' => array( 'Resueltas', $n['RESUELTO'], '' ), 'gestionados' => array( 'Gestionados', $n['gestionados'], '' ) );
 				foreach ( $tabs as $k => $t ) printf( '<a class="kpi %s %s" href="%s"><b>%d</b><span>%s</span></a>', $t[2], $filtro === $k ? 'on' : '', esc_url( add_query_arg( 'v', $k, $base ) ), $t[1], $t[0] );
 				?>
 			</div>

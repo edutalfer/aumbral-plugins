@@ -36,7 +36,7 @@ final class AUP_Pagos_App {
 	public function badge() {
 		$n = 0;
 		foreach ( AUP_Pagos::i()->casos() as $x ) {
-			if ( ! $x['gestionado'] && in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR' ), true ) ) $n++;
+			if ( ! $x['gestionado'] && in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR', 'ALTA' ), true ) ) $n++;
 		}
 		return $n;
 	}
@@ -62,8 +62,8 @@ final class AUP_Pagos_App {
 		$casos  = $P->casos();
 		$filtro = sanitize_key( $ctx['query']['v'] ?? 'abiertos' );
 
-		$n = array( 'CONTACTAR' => 0, 'REVISAR' => 0, 'ESPERAR' => 0, 'PERDIDA' => 0, 'DUPLICADA' => 0, 'SUSTITUIDA' => 0, 'RESUELTO' => 0, 'gestionados' => 0 );
-		$eu = array( 'CONTACTAR' => 0, 'REVISAR' => 0, 'ESPERAR' => 0 );
+		$n = array( 'CONTACTAR' => 0, 'REVISAR' => 0, 'ESPERAR' => 0, 'ALTA' => 0, 'PERDIDA' => 0, 'DUPLICADA' => 0, 'SUSTITUIDA' => 0, 'RESUELTO' => 0, 'gestionados' => 0 );
+		$eu = array( 'CONTACTAR' => 0, 'REVISAR' => 0, 'ESPERAR' => 0, 'ALTA' => 0 );
 		foreach ( $casos as $x ) {
 			if ( $x['gestionado'] ) { $n['gestionados']++; continue; }
 			$n[ $x['veredicto'] ]++;
@@ -71,16 +71,17 @@ final class AUP_Pagos_App {
 				$eu[ $x['veredicto'] ] += (float) str_replace( ',', '.', preg_replace( '/[^0-9,]/', '', explode( '/', $x['importe'] )[0] ) );
 			}
 		}
-		$abiertos = $n['CONTACTAR'] + $n['REVISAR'] + $n['ESPERAR'];
+		$abiertos = $n['CONTACTAR'] + $n['REVISAR'] + $n['ESPERAR'] + $n['ALTA'];
 		$total    = array_sum( $eu );
-		$urg      = $eu['CONTACTAR'] + $eu['REVISAR'];
+		$urg      = $eu['CONTACTAR'] + $eu['REVISAR'] + $eu['ALTA'];
 		$pUrg     = $total > 0 ? round( $urg / $total * 100 ) : 0;
 		$pEsp     = 100 - $pUrg;
 
 		$lista = array_filter( $casos, function ( $x ) use ( $filtro ) {
 			if ( $filtro === 'gestionados' ) return $x['gestionado'];
 			if ( $x['gestionado'] ) return false;
-			if ( $filtro === 'abiertos' )   return in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR' ), true );
+			if ( $filtro === 'abiertos' )   return in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR', 'ALTA' ), true );
+			if ( $filtro === 'alta' )       return $x['veredicto'] === 'ALTA';
 			if ( $filtro === 'sustituida' ) return in_array( $x['veredicto'], array( 'SUSTITUIDA', 'DUPLICADA' ), true );
 			if ( $filtro === 'archivo' )    return in_array( $x['veredicto'], array( 'PERDIDA', 'RESUELTO', 'SUSTITUIDA', 'DUPLICADA' ), true );
 			if ( $filtro === 'todos' )      return true;
@@ -89,7 +90,7 @@ final class AUP_Pagos_App {
 
 		$cifra = number_format( $total, 2, ',', '.' );
 		$part  = explode( ',', $cifra );
-		$etq   = array( 'CONTACTAR' => 'Escríbele', 'REVISAR' => 'Revisar', 'ESPERAR' => 'En espera', 'PERDIDA' => 'Perdida', 'DUPLICADA' => 'Duplicada', 'SUSTITUIDA' => 'Se reactivó', 'RESUELTO' => 'Cobrada' );
+		$etq   = array( 'CONTACTAR' => 'Escríbele', 'REVISAR' => 'Revisar', 'ESPERAR' => 'En espera', 'ALTA' => 'Nunca pagó', 'PERDIDA' => 'Perdida', 'DUPLICADA' => 'Duplicada', 'SUSTITUIDA' => 'Se reactivó', 'RESUELTO' => 'Cobrada' );
 		?>
  <div class="card">
  <?php if ( $abiertos ) : ?>
@@ -102,6 +103,9 @@ final class AUP_Pagos_App {
   <div class="leg">
    <div><span class="dot" style="background:var(--r)"></span><b><?php echo (int) ( $n['CONTACTAR'] + $n['REVISAR'] ); ?></b> necesitan un mensaje</div>
    <div><span class="dot" style="background:var(--am)"></span><b><?php echo (int) $n['ESPERAR']; ?></b> se reintentan solas</div>
+   <?php if ( $n['ALTA'] ) : ?>
+   <div><span class="dot" style="background:#8a6d3b"></span><b><?php echo (int) $n['ALTA']; ?></b> nunca llegaron a pagar</div>
+   <?php endif; ?>
   </div>
  <?php else : ?>
   <div class="okh"><span class="em">&#127881;</span><div>
@@ -117,6 +121,7 @@ final class AUP_Pagos_App {
 		'abiertos'    => array( 'Pendientes', $abiertos ),
 		'contactar'   => array( 'Escribir', $n['CONTACTAR'] ),
 		'esperar'     => array( 'En espera', $n['ESPERAR'] ),
+		'alta'        => array( 'Nunca pagó', $n['ALTA'] ),
 		'archivo'     => array( 'Archivo', 0 ),
 		'gestionados' => array( 'Hechos', 0 ),
 		'todos'       => array( 'Todo', 0 ),
@@ -136,6 +141,7 @@ final class AUP_Pagos_App {
 	'abiertos'    => array( 'Pendientes', 'lo que sigue abierto' ),
 	'contactar'   => array( 'Escribir hoy', 'no se arreglan solas' ),
 	'esperar'     => array( 'En espera', 'Stripe lo reintenta' ),
+	'alta'        => array( 'Nunca llegaron a pagar', 'altas sin primer pago' ),
 	'archivo'     => array( 'Archivo', 'cerrado o irrelevante' ),
 	'gestionados' => array( 'Gestionados', 'ya te ocupaste' ),
 	'perdida'     => array( 'Perdidas', 'canceladas tras el fallo' ),
@@ -152,7 +158,7 @@ final class AUP_Pagos_App {
  <?php endif; ?>
 
  <?php foreach ( $lista as $x ) :
-	$msg = in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR', 'PERDIDA' ), true );
+	$msg = in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR', 'ALTA', 'PERDIDA' ), true );
 	$url = $x['url_pago'] ? $x['url_pago'] : $x['url_cambio'];
  ?>
  <article class="caso <?php echo esc_attr( $x['veredicto'] . ( $x['gestionado'] ? ' q' : '' ) ); ?>">

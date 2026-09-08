@@ -262,6 +262,7 @@ h2 span{font-size:13px;font-weight:400;color:var(--mut);text-align:right}
 .tag.az{background:var(--azs);color:var(--az)}
 .tag.gy{background:#f3f2f0;color:var(--mut)}
 .ESPERAR .tag{background:var(--ams);color:var(--am)}
+.ALTA .tag{background:#f4eddf;color:#8a6d3b}
 .PERDIDA .tag,.DUPLICADA .tag{background:#f3f2f0;color:var(--mut)}
 .RESUELTO .tag,.SUSTITUIDA .tag{background:var(--grs);color:var(--gr)}
 .f1{display:flex;align-items:center;justify-content:space-between;gap:10px}
