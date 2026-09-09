@@ -634,9 +634,88 @@ final class AUP_Pagos {
 		</script>
 		<?php
 	}
+
+	/* ═══════════════ BAJAS VOLUNTARIAS ═══════════════ */
+
+	const META_BAJA = '_aumbral_tp_baja';
+
+	/**
+	 * Suscripciones canceladas por el propio cliente.
+	 * La fecha que importa no es la de la cancelacion sino la de fin del periodo ya pagado
+	 * (_schedule_end): hasta ese dia el acceso sigue vivo y no hay que tocar TrainingPeaks.
+	 * WooCommerce guarda esas fechas en UTC, asi que se convierten a hora local.
+	 */
+	public function bajas( $dias = 60 ) {
+		static $cache = array();
+		if ( isset( $cache[ $dias ] ) ) return $cache[ $dias ];
+
+		global $wpdb;
+		$desde = gmdate( 'Y-m-d H:i:s', strtotime( '-' . (int) $dias . ' days' ) );
+
+		$filas = $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.ID, p.post_status,
+				MAX(CASE WHEN m.meta_key='_schedule_cancelled'  THEN m.meta_value END) AS f_cancel,
+				MAX(CASE WHEN m.meta_key='_schedule_end'        THEN m.meta_value END) AS f_end,
+				MAX(CASE WHEN m.meta_key='_billing_first_name'  THEN m.meta_value END) AS nombre,
+				MAX(CASE WHEN m.meta_key='_billing_last_name'   THEN m.meta_value END) AS apellidos,
+				MAX(CASE WHEN m.meta_key='_billing_email'       THEN m.meta_value END) AS email,
+				MAX(CASE WHEN m.meta_key='_customer_user'       THEN m.meta_value END) AS user_id,
+				MAX(CASE WHEN m.meta_key=%s                     THEN m.meta_value END) AS tp_baja
+			 FROM {$wpdb->posts} p
+			 JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
+			 WHERE p.post_type = 'shop_subscription'
+			   AND p.post_status IN ('wc-pending-cancel','wc-cancelled')
+			 GROUP BY p.ID, p.post_status
+			 HAVING f_cancel >= %s OR p.post_status = 'wc-pending-cancel'
+			 ORDER BY f_end ASC",
+			self::META_BAJA, $desde
+		), ARRAY_A );
+
+		$hoy  = current_time( 'Y-m-d' );
+		$out  = array();
+		foreach ( $filas as $f ) {
+			$fin   = $f['f_end']    ? get_date_from_gmt( $f['f_end'], 'Y-m-d' )       : '';
+			$baja  = $f['f_cancel'] ? get_date_from_gmt( $f['f_cancel'], 'Y-m-d' )    : '';
+			$out[] = array(
+				'id'        => (int) $f['ID'],
+				'cliente'   => trim( $f['nombre'] . ' ' . $f['apellidos'] ),
+				'email'     => strtolower( (string) $f['email'] ),
+				'user_id'   => (int) $f['user_id'],
+				'baja'      => $baja,
+				'baja_hora' => $f['f_cancel'] ? get_date_from_gmt( $f['f_cancel'], 'H:i' ) : '',
+				'fin'       => $fin,
+				'vence_ya'  => $fin && $fin <= $hoy,
+				'dias'      => $fin ? (int) floor( ( strtotime( $fin ) - strtotime( $hoy ) ) / DAY_IN_SECONDS ) : 0,
+				'activa'    => $f['post_status'] === 'wc-pending-cancel',
+				'hecho'     => ! empty( $f['tp_baja'] ),
+				'hecho_el'  => $f['tp_baja'] ? (int) $f['tp_baja'] : 0,
+				'url_admin' => admin_url( 'post.php?post=' . (int) $f['ID'] . '&action=edit' ),
+			);
+		}
+		return $cache[ $dias ] = $out;
+	}
+
+	/** Marca (o desmarca) que ya se ha quitado del plan en TrainingPeaks. */
+	public function baja_hecha() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Sin permiso' );
+		check_admin_referer( 'aup_baja_hecha' );
+		$id = absint( $_POST['sub_id'] ?? 0 );
+		if ( $id && get_post_type( $id ) === 'shop_subscription' ) {
+			if ( ! empty( $_POST['deshacer'] ) ) {
+				delete_post_meta( $id, self::META_BAJA );
+			} else {
+				update_post_meta( $id, self::META_BAJA, time() );
+				update_post_meta( $id, '_aumbral_tp_baja_por', get_current_user_id() );
+			}
+		}
+		wp_safe_redirect( wp_get_referer() ?: home_url( '/app/pagos/?v=bajas' ) );
+		exit;
+	}
 }
 
 require_once __DIR__ . '/app.php';
+
+add_action( 'admin_post_aup_baja_hecha', function () { AUP_Pagos::i()->baja_hecha(); } );
 
 add_action( 'plugins_loaded', function () {
 	if ( class_exists( 'WC_Subscriptions' ) || function_exists( 'wcs_get_subscription' ) ) { AUP_Pagos::i(); AUP_Pagos_App::i(); }

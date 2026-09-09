@@ -41,6 +41,13 @@ final class AUP_Pagos_App {
 		return $n;
 	}
 
+	/** Bajas cuyo periodo pagado ya ha vencido y siguen en TrainingPeaks. */
+	public function por_quitar() {
+		$n = 0;
+		foreach ( AUP_Pagos::i()->bajas() as $b ) if ( $b['vence_ya'] && ! $b['hecho'] ) $n++;
+		return $n + $this->por_quitar();
+	}
+
 	/** /pagos/ y sus subrutas antiguas → /app/pagos/ (marcadores y PWA ya instalada). */
 	public function ruta_antigua() {
 		$p = trim( (string) wp_parse_url( $_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH ), '/' );
@@ -54,9 +61,134 @@ final class AUP_Pagos_App {
 		exit;
 	}
 
+
+	/* ───────────── Bajas voluntarias ───────────── */
+
+	public function cuerpo_bajas( $ctx ) {
+		$base   = $ctx['base'];
+		$v      = sanitize_key( $ctx['query']['v'] ?? 'bajas' );
+		$hoy    = current_time( 'Y-m-d' );
+		$todas  = AUP_Pagos::i()->bajas();
+
+		$hoy_n = $prog = $quitar = 0;
+		foreach ( $todas as $b ) {
+			if ( $b['baja'] === $hoy ) $hoy_n++;
+			if ( $b['hecho'] ) continue;
+			if ( $b['vence_ya'] ) $quitar++; else $prog++;
+		}
+
+		$lista = array_filter( $todas, function ( $b ) use ( $v, $hoy ) {
+			if ( $v === 'bajas_hechas' ) return $b['hecho'];
+			if ( $b['hecho'] ) return false;
+			if ( $v === 'bajas_prog' )   return ! $b['vence_ya'];
+			if ( $v === 'bajas_hoy' )    return $b['baja'] === $hoy;
+			return $b['vence_ya'];
+		} );
+		?>
+ <div class="card">
+ <?php if ( $quitar ) : ?>
+  <div class="lbl">Por quitar de TrainingPeaks</div>
+  <div class="big"><?php echo (int) $quitar; ?></div>
+  <div class="leg" style="margin-top:14px">
+   <div><span class="dot" style="background:var(--r)"></span><b><?php echo (int) $quitar; ?></b> ya sin acceso</div>
+   <div><span class="dot" style="background:var(--am)"></span><b><?php echo (int) $prog; ?></b> con acceso hasta su fecha</div>
+   <div><span class="dot" style="background:var(--mut)"></span><b><?php echo (int) $hoy_n; ?></b> se dieron de baja hoy</div>
+  </div>
+ <?php else : ?>
+  <div class="okh"><span class="em">&#128076;</span><div>
+   <div style="font-size:17px;font-weight:600">Nadie por quitar</div>
+   <div class="lbl" style="margin-top:3px"><?php echo (int) $prog; ?> con el acceso aún vivo · <?php echo (int) $hoy_n; ?> bajas hoy</div>
+  </div></div>
+ <?php endif; ?>
+ </div>
+
+ <div class="chips">
+  <a href="<?php echo esc_url( add_query_arg( 'v', 'abiertos', $base ) ); ?>">&larr; Pagos</a>
+ <?php
+	$chips = array(
+		'bajas'        => array( 'Por quitar', $quitar ),
+		'bajas_prog'   => array( 'Programadas', $prog ),
+		'bajas_hoy'    => array( 'Hoy', $hoy_n ),
+		'bajas_hechas' => array( 'Quitadas', 0 ),
+	);
+	foreach ( $chips as $k => $c ) {
+		printf( '<a class="%s" href="%s">%s%s</a>',
+			$v === $k ? 'on' : '',
+			esc_url( add_query_arg( 'v', $k, $base ) ),
+			esc_html( $c[0] ),
+			$c[1] ? ' <b>' . (int) $c[1] . '</b>' : '' );
+	}
+ ?>
+ </div>
+
+ <?php
+	$tit = array(
+		'bajas'        => array( 'Por quitar de TrainingPeaks', 'su acceso ya ha vencido' ),
+		'bajas_prog'   => array( 'Programadas', 'siguen con acceso pagado' ),
+		'bajas_hoy'    => array( 'Bajas de hoy', 'pedidas hoy' ),
+		'bajas_hechas' => array( 'Ya quitadas', 'nada que hacer' ),
+	);
+	$t = isset( $tit[ $v ] ) ? $tit[ $v ] : $tit['bajas'];
+ ?>
+ <h2><?php echo esc_html( $t[0] ); ?> <span><?php echo count( $lista ) . ' · ' . esc_html( $t[1] ); ?></span></h2>
+
+ <?php if ( ! $lista ) : ?>
+  <div class="zero"><span class="em">&#127958;</span><b>Nada por aquí</b><p>No hay bajas en esta vista.</p></div>
+ <?php endif; ?>
+
+ <?php foreach ( $lista as $b ) :
+	if ( $b['hecho'] )            $e = array( 'Quitado', 'gr' );
+	elseif ( ! $b['fin'] )        $e = array( 'Sin fecha de fin', 'gy' );
+	elseif ( $b['dias'] === 0 )   $e = array( 'Quitar hoy', '' );
+	elseif ( $b['vence_ya'] )     $e = array( 'Venció hace ' . abs( $b['dias'] ) . ' d', '' );
+	else                          $e = array( 'Quitar en ' . $b['dias'] . ' d', 'am' );
+ ?>
+ <article class="caso<?php echo $b['hecho'] ? ' q' : ''; ?>">
+  <div class="f1">
+   <span class="tag <?php echo esc_attr( $e[1] ); ?>"><?php echo esc_html( $e[0] ); ?></span>
+   <span class="hace">baja el <?php echo esc_html( $b['baja'] ? wp_date( 'j M', strtotime( $b['baja'] ) ) : '?' ); ?></span>
+  </div>
+  <div class="nom"><?php echo esc_html( $b['cliente'] ?: '(sin nombre)' ); ?></div>
+  <div class="sub"><?php echo esc_html( $b['email'] ); ?></div>
+  <div class="meta">
+   <?php if ( $b['fin'] ) : ?>
+    <span class="pi<?php echo $b['vence_ya'] && ! $b['hecho'] ? ' al' : ''; ?>">quitar el <b><?php echo esc_html( wp_date( 'j M', strtotime( $b['fin'] ) ) ); ?></b></span>
+   <?php endif; ?>
+   <span class="pi"><?php echo $b['activa'] ? 'acceso vivo' : 'ya sin acceso'; ?></span>
+  </div>
+
+  <?php if ( ! $b['hecho'] && ! $b['vence_ya'] ) : ?>
+   <div class="acc">Pagó hasta el <?php echo esc_html( wp_date( 'l j \d\e F', strtotime( $b['fin'] ) ) ); ?>. Hasta ese día mantiene el plan.</div>
+  <?php endif; ?>
+
+  <?php if ( $b['hecho'] ) : ?>
+   <div class="hecho">&#10003;<span>Quitado de TrainingPeaks el <?php echo esc_html( wp_date( 'd/m/Y', $b['hecho_el'] ) ); ?></span></div>
+  <?php endif; ?>
+
+  <div class="bts">
+   <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:contents">
+    <?php wp_nonce_field( 'aup_baja_hecha' ); ?>
+    <input type="hidden" name="action" value="aup_baja_hecha">
+    <input type="hidden" name="sub_id" value="<?php echo (int) $b['id']; ?>">
+    <?php if ( $b['hecho'] ) : ?>
+     <input type="hidden" name="deshacer" value="1"><button class="b o">Reabrir</button>
+    <?php else : ?>
+     <button class="b p">Quitado de TP</button>
+    <?php endif; ?>
+   </form>
+   <a class="b o" href="<?php echo esc_url( $b['url_admin'] ); ?>" target="_blank" rel="noopener">Suscripción</a>
+  </div>
+ </article>
+ <?php endforeach;
+	}
+
 	/* ───────────── Cuerpo de la pantalla ───────────── */
 
 	public function cuerpo( $ctx ) {
+		if ( strpos( sanitize_key( $ctx['query']['v'] ?? '' ), 'baja' ) === 0 ) {
+			$this->cuerpo_bajas( $ctx );
+			return;
+		}
 		$base   = $ctx['base'];
 		$P      = AUP_Pagos::i();
 		$casos  = $P->casos();
@@ -122,6 +254,7 @@ final class AUP_Pagos_App {
 		'contactar'   => array( 'Escribir', $n['CONTACTAR'] ),
 		'esperar'     => array( 'En espera', $n['ESPERAR'] ),
 		'alta'        => array( 'Nunca pagó', $n['ALTA'] ),
+		'bajas'       => array( 'Bajas', $this->por_quitar() ),
 		'archivo'     => array( 'Archivo', 0 ),
 		'gestionados' => array( 'Hechos', 0 ),
 		'todos'       => array( 'Todo', 0 ),
