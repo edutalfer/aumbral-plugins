@@ -1,0 +1,70 @@
+#!/bin/bash
+# A Umbral - comprobacion de salud de la app interna.
+# Uso: app-check          -> comprueba
+#      app-check --purga  -> purga cachés antes de comprobar (tras un cambio de código)
+WEB=~/domains/aumbral.com/public_html
+PLUGINS=$WEB/wp-content/plugins
+FALLOS=0
+
+echo ""
+echo -e "\e[1mSINTAXIS\e[0m"
+for p in aumbral-app aumbral-pagos aumbral-planes aumbral-tareas; do
+  for f in $PLUGINS/$p/*.php; do
+    if OUT=$(php -l "$f" 2>&1); then
+      printf "  \e[32mOK\e[0m    %s\n" "$(basename $p)/$(basename $f)"
+    else
+      printf "  \e[31mFALLO\e[0m %s\n        %s\n" "$(basename $p)/$(basename $f)" "$OUT"
+      FALLOS=$((FALLOS+1))
+    fi
+  done
+done
+
+if [ "$FALLOS" -gt 0 ]; then
+  echo -e "\n\e[31m✗ Hay errores de sintaxis: no sigo. Arregla eso primero.\e[0m\n"
+  exit 1
+fi
+
+if [ "$1" = "--purga" ]; then
+  pkill -f lsphp 2>/dev/null
+  sleep 2
+  (cd $WEB && wp litespeed-purge all --allow-root >/dev/null 2>&1)
+  echo -e "\n  cachés purgadas"
+fi
+
+echo ""
+echo -e "\e[1mRUTAS\e[0m"
+comprueba_url () { # $1 url  $2 codigo esperado
+  COD=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "https://aumbral.com$1")
+  T=$(curl -s -o /dev/null -w "%{time_total}" --max-time 20 "https://aumbral.com$1")
+  if [ "$COD" = "$2" ]; then
+    printf "  \e[32mOK\e[0m    %-30s %s en %ss\n" "$1" "$COD" "$T"
+  else
+    printf "  \e[31mFALLO\e[0m %-30s devuelve %s (esperado %s)\n" "$1" "$COD" "$2"
+    FALLOS=$((FALLOS+1))
+  fi
+}
+comprueba_url "/" 200
+comprueba_url "/app/" 302                        # sin sesión debe mandar al login
+comprueba_url "/app/pagos/" 302
+comprueba_url "/app/planes/" 302
+comprueba_url "/app/tareas/" 302
+comprueba_url "/pagos/" 302                      # ruta antigua
+comprueba_url "/app/manifest.webmanifest" 200
+comprueba_url "/app/icon?s=192" 200
+
+# Las pantallas por dentro. Si algo entra en bucle, PHP muere y lo detectamos aquí.
+cd $WEB
+timeout 120 wp eval-file wp-content/plugins/aumbral-app/checks.php --allow-root
+COD=$?
+if [ "$COD" -eq 124 ]; then
+  echo -e "\e[31m✗ Las comprobaciones se han quedado colgadas (posible bucle infinito)\e[0m\n"
+  exit 1
+elif [ "$COD" -ge 128 ]; then
+  echo -e "\e[31m✗ PHP ha muerto por señal $((COD-128)) — casi seguro recursión o memoria\e[0m\n"
+  exit 1
+elif [ "$COD" -ne 0 ]; then
+  exit 1
+fi
+
+[ "$FALLOS" -gt 0 ] && { echo -e "\e[31m✗ $FALLOS fallo(s) en rutas o sintaxis\e[0m\n"; exit 1; }
+exit 0
