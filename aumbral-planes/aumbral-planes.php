@@ -301,6 +301,38 @@ final class AUmbral_Planes {
 		return $av;
 	}
 
+	/**
+	 * Resumen del plan de una persona, para que lo pueda pintar otro modulo (pagos, bajas).
+	 * Devuelve cadena vacia si no consta ninguna solicitud suya.
+	 */
+	public function plan_de( $email ) {
+		$email = strtolower( trim( (string) $email ) );
+		if ( ! $email ) return '';
+
+		static $cache = array();
+		if ( isset( $cache[ $email ] ) ) return $cache[ $email ];
+
+		global $wpdb;
+		$t = self::tabla();
+		$f = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM $t WHERE email = %s ORDER BY fecha DESC LIMIT 1", $email
+		), ARRAY_A );
+		if ( ! $f ) return $cache[ $email ] = '';
+
+		$plan = str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $f['slug'] );
+		$plan = str_replace( '-', ' ', $plan );
+		$txt  = 'Plan: ' . $plan . ( $f['modalidad'] ? ' · ' . mb_strtolower( $f['modalidad'] ) : '' );
+
+		if ( $f['estado'] === 'inicio' && $f['fecha_paso'] ) {
+			$txt .= '. En semanas de inicio, pasa al plan real el ' . wp_date( 'j M', strtotime( $f['fecha_paso'] ) ) . '.';
+		} elseif ( $f['estado'] === 'pendiente' ) {
+			$txt .= '. Solicitud sin cargar todavía.';
+		} else {
+			$txt .= '. Solicitado el ' . wp_date( 'j M', strtotime( $f['fecha'] ) ) . '.';
+		}
+		return $cache[ $email ] = $txt;
+	}
+
 	/* ───────────── Borrador de respuesta ───────────── */
 
 	/**
@@ -546,6 +578,8 @@ final class AUmbral_Planes {
 	$e = isset( $et[ $f['estado'] ] ) ? $et[ $f['estado'] ] : array( $f['estado'], 'gy' );
 	$aviso = isset( $avisos[ $f['email'] ] ) && $f['estado'] === 'pendiente' ? $avisos[ $f['email'] ] : '';
 	$brd = trim( (string) $f['mensaje'] ) !== '' ? $this->borrador( $f ) : '';
+	$avp = class_exists( 'AUP_Pagos' ) && in_array( $f['estado'], array( 'pendiente', 'inicio' ), true )
+		? AUP_Pagos::i()->aviso_cliente( $f['email'] ) : '';
 	$nuevo = ! $f['lleva_inicio'] && $f['estado'] === 'pendiente'
 		&& preg_match( '/\\b(soy|somos|es mi)\\s+(nuev[oa]|primer)|nuev[oa]\\s+(en|por aqu)|primera vez|acabo de (empezar|entrar|suscribirme)|me acabo de suscribir/iu', (string) $f['mensaje'] );
  ?>
@@ -574,6 +608,8 @@ final class AUmbral_Planes {
   <?php endif; ?>
 
   <?php if ( $aviso ) : ?><div class="acc" style="background:var(--rs);color:var(--r)"><?php echo esc_html( $aviso ); ?></div><?php endif; ?>
+
+  <?php if ( $avp ) : ?><div class="acc" style="background:var(--rs);color:var(--r)"><b>Ojo con el pago:</b> <?php echo esc_html( $avp ); ?></div><?php endif; ?>
 
   <?php if ( $nuevo ) : ?><div class="acc" style="background:var(--ams);color:var(--am)">Dice en su mensaje que es nuevo, pero el formulario no lo pregunta. Si es su primer plan, cárgalo con las 2 semanas de inicio.</div><?php endif; ?>
 

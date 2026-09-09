@@ -157,6 +157,9 @@ final class AUP_Pagos_App {
    <span class="pi"><?php echo $b['activa'] ? 'acceso vivo' : 'ya sin acceso'; ?></span>
   </div>
 
+  <?php $plan = class_exists( 'AUmbral_Planes' ) ? AUmbral_Planes::i()->plan_de( $b['email'] ) : ''; ?>
+  <?php if ( $plan ) : ?><div class="acc" style="margin-top:12px"><?php echo esc_html( $plan ); ?></div><?php endif; ?>
+
   <?php if ( ! $b['hecho'] && ! $b['vence_ya'] ) : ?>
    <div class="acc">Pagó hasta el <?php echo esc_html( wp_date( 'l j \d\e F', strtotime( $b['fin'] ) ) ); ?>. Hasta ese día mantiene el plan.</div>
   <?php endif; ?>
@@ -316,6 +319,8 @@ final class AUP_Pagos_App {
    <?php if ( $x['motivo_raw'] ) : ?><div class="raw"><?php echo esc_html( $x['motivo_raw'] ); ?></div><?php endif; ?>
   </div>
   <div class="acc"><?php echo esc_html( $x['accion'] ); ?></div>
+  <?php $plan = class_exists( 'AUmbral_Planes' ) ? AUmbral_Planes::i()->plan_de( $x['email'] ) : ''; ?>
+  <?php if ( $plan ) : ?><div class="acc" style="margin-top:8px"><?php echo esc_html( $plan ); ?></div><?php endif; ?>
 
   <?php if ( $msg ) : ?>
   <details>

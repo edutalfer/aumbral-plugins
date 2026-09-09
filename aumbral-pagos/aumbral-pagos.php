@@ -635,6 +635,78 @@ final class AUP_Pagos {
 		<?php
 	}
 
+
+	/**
+	 * Estado de suscripcion por email, para que otros modulos puedan cruzarlo.
+	 * Devuelve email => array( estado, fin, sub_id, fallo ).
+	 * Una sola consulta y cache en memoria: se llama una vez por pantalla.
+	 */
+	public function clientes() {
+		static $cache = null;
+		if ( null !== $cache ) return $cache;
+
+		$guardado = get_transient( 'aup_clientes' );
+		if ( is_array( $guardado ) ) return $cache = $guardado;
+
+		global $wpdb;
+		$filas = $wpdb->get_results(
+			"SELECT p.ID, p.post_status,
+				MAX(CASE WHEN m.meta_key='_billing_email' THEN m.meta_value END) AS email,
+				MAX(CASE WHEN m.meta_key='_schedule_end'  THEN m.meta_value END) AS f_end
+			 FROM {$wpdb->posts} p
+			 JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
+			 WHERE p.post_type = 'shop_subscription'
+			 GROUP BY p.ID, p.post_status", ARRAY_A );
+
+		$peso = array( 'wc-active' => 5, 'wc-pending-cancel' => 4, 'wc-on-hold' => 3, 'wc-pending' => 2, 'wc-cancelled' => 1, 'wc-expired' => 1 );
+		$out  = array();
+		foreach ( $filas as $f ) {
+			$mail = strtolower( trim( (string) $f['email'] ) );
+			if ( ! $mail ) continue;
+			$pe = $peso[ $f['post_status'] ] ?? 0;
+			// Si alguien tiene varias suscripciones, manda la de mejor estado.
+			if ( isset( $out[ $mail ] ) && $out[ $mail ]['peso'] >= $pe ) continue;
+			$out[ $mail ] = array(
+				'estado' => str_replace( 'wc-', '', $f['post_status'] ),
+				'fin'    => $f['f_end'] ? get_date_from_gmt( $f['f_end'], 'Y-m-d' ) : '',
+				'sub_id' => (int) $f['ID'],
+				'peso'   => $pe,
+				'fallo'  => '',
+			);
+		}
+
+		// Fallos de pago abiertos, del propio motor de casos.
+		foreach ( $this->casos() as $c ) {
+			$mail = strtolower( (string) $c['email'] );
+			if ( ! $mail || $c['gestionado'] ) continue;
+			if ( in_array( $c['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR', 'ALTA' ), true ) && isset( $out[ $mail ] ) ) {
+				$out[ $mail ]['fallo'] = $c['veredicto'];
+			}
+		}
+
+		set_transient( 'aup_clientes', $out, 5 * MINUTE_IN_SECONDS );
+		return $cache = $out;
+	}
+
+	/** Resumen en una linea del estado de un cliente, o cadena vacia si no hay nada que decir. */
+	public function aviso_cliente( $email ) {
+		$email = strtolower( trim( (string) $email ) );
+		if ( ! $email ) return '';
+		$c = $this->clientes();
+		if ( ! isset( $c[ $email ] ) ) return 'No aparece ninguna suscripción con este correo.';
+
+		$x = $c[ $email ];
+		$f = $x['fin'] ? wp_date( 'j M', strtotime( $x['fin'] ) ) : '';
+
+		if ( $x['estado'] === 'cancelled' )      return 'Su suscripción está cancelada' . ( $f ? ' (acceso hasta el ' . $f . ')' : '' ) . '.';
+		if ( $x['estado'] === 'pending-cancel' ) return 'Ha pedido la baja: mantiene el acceso hasta el ' . $f . '.';
+		if ( $x['estado'] === 'on-hold' )        return 'Su suscripción está en espera, sin pago al día.';
+		if ( $x['estado'] === 'pending' )        return 'Su suscripción está pendiente de primer pago.';
+		if ( $x['fallo'] === 'ALTA' )            return 'Nunca llegó a completar el primer pago.';
+		if ( $x['fallo'] )                       return 'Tiene un pago fallido sin resolver.';
+		return '';
+	}
+
 	/* ═══════════════ BAJAS VOLUNTARIAS ═══════════════ */
 
 	const META_BAJA = '_aumbral_tp_baja';
@@ -700,6 +772,7 @@ final class AUP_Pagos {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Sin permiso' );
 		check_admin_referer( 'aup_baja_hecha' );
 		$id = absint( $_POST['sub_id'] ?? 0 );
+		delete_transient( 'aup_clientes' );
 		if ( $id && get_post_type( $id ) === 'shop_subscription' ) {
 			if ( ! empty( $_POST['deshacer'] ) ) {
 				delete_post_meta( $id, self::META_BAJA );
