@@ -38,14 +38,14 @@ final class AUP_Pagos_App {
 		foreach ( AUP_Pagos::i()->casos() as $x ) {
 			if ( ! $x['gestionado'] && in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR', 'ALTA' ), true ) ) $n++;
 		}
-		return $n;
+		return $n + $this->por_quitar();
 	}
 
 	/** Bajas cuyo periodo pagado ya ha vencido y siguen en TrainingPeaks. */
 	public function por_quitar() {
 		$n = 0;
 		foreach ( AUP_Pagos::i()->bajas() as $b ) if ( $b['vence_ya'] && ! $b['hecho'] ) $n++;
-		return $n + $this->por_quitar();
+		return $n;
 	}
 
 	/** /pagos/ y sus subrutas antiguas → /app/pagos/ (marcadores y PWA ya instalada). */
