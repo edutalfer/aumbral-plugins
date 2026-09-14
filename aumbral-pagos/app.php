@@ -17,6 +17,7 @@ final class AUP_Pagos_App {
 		add_filter( 'aumbral_app_modulos', array( $this, 'registrar' ) );
 		add_action( 'template_redirect', array( $this, 'ruta_antigua' ), 0 );
 		add_filter( 'aumbral_app_resumen', array( $this, 'resumen' ) );
+		add_action( 'admin_notices', array( $this, 'aviso_panel' ) );
 	}
 
 	/* ───────────── Registro en la app ───────────── */
@@ -62,6 +63,17 @@ final class AUP_Pagos_App {
 		exit;
 	}
 
+
+	/** El panel de wp-admin sigue existiendo como respaldo, pero el sitio de trabajo es la app. */
+	public function aviso_panel() {
+		if ( ( $_GET['page'] ?? '' ) !== AUP_Pagos::SLUG ) return;
+		printf(
+			'<div class="notice notice-info"><p><strong>Este panel es el respaldo.</strong> ' .
+			'El día a día se lleva en <a href="%s">la app</a>, que además tiene bajas, planes y tareas. ' .
+			'Esta pantalla se mantiene por si la app falla.</p></div>',
+			esc_url( aumbral_app_url( self::SLUG ) )
+		);
+	}
 
 	/** Bloque del resumen diario: quien necesita un mensaje y a quien hay que quitar de TP. */
 	public function resumen( $bloques ) {

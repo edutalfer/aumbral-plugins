@@ -34,7 +34,14 @@ final class AUmbral_Resumen {
 	public function silenciar_aviso_tareas( $corto, $args ) {
 		if ( null !== $corto || ! get_option( self::OPT, 1 ) ) return $corto;
 		$asunto = isset( $args['subject'] ) ? (string) $args['subject'] : '';
-		return strpos( $asunto, 'Tareas que vencen mañana' ) === 0 ? true : $corto;
+
+		// Absorbidos por este resumen. La alerta inmediata de un fallo de pago
+		// («[A Umbral] Contactar: …») NO se toca: avisa en el momento y eso sigue valiendo.
+		$fuera = array( 'Tareas que vencen mañana', '[A Umbral] Pagos:' );
+		foreach ( $fuera as $x ) {
+			if ( strpos( $asunto, $x ) === 0 ) return true;
+		}
+		return $corto;
 	}
 
 	/** A quién va: los usuarios con acceso a la app. */
