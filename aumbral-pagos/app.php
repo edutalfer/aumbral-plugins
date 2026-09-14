@@ -16,6 +16,7 @@ final class AUP_Pagos_App {
 	private function __construct() {
 		add_filter( 'aumbral_app_modulos', array( $this, 'registrar' ) );
 		add_action( 'template_redirect', array( $this, 'ruta_antigua' ), 0 );
+		add_filter( 'aumbral_app_resumen', array( $this, 'resumen' ) );
 	}
 
 	/* ───────────── Registro en la app ───────────── */
@@ -61,6 +62,39 @@ final class AUP_Pagos_App {
 		exit;
 	}
 
+
+	/** Bloque del resumen diario: quien necesita un mensaje y a quien hay que quitar de TP. */
+	public function resumen( $bloques ) {
+		$items = array();
+		$etq   = array( 'CONTACTAR' => 'necesita que le escribas', 'REVISAR' => 'hay que revisarlo', 'ALTA' => 'nunca completó el primer pago' );
+
+		foreach ( AUP_Pagos::i()->casos() as $x ) {
+			if ( $x['gestionado'] || ! isset( $etq[ $x['veredicto'] ] ) ) continue;
+			$items[] = array(
+				'texto'   => $x['cliente'] . ': ' . $etq[ $x['veredicto'] ],
+				'detalle' => $x['importe'] . ' · ' . $x['motivo_es'],
+				'urgente' => $x['veredicto'] !== 'ALTA',
+			);
+		}
+
+		foreach ( AUP_Pagos::i()->bajas() as $b ) {
+			if ( $b['hecho'] || ! $b['vence_ya'] ) continue;
+			$items[] = array(
+				'texto'   => $b['cliente'] . ': quitar de TrainingPeaks',
+				'detalle' => $b['dias'] === 0 ? 'Su acceso termina hoy.' : 'Su acceso terminó el ' . wp_date( 'j M', strtotime( $b['fin'] ) ) . '.',
+				'urgente' => true,
+			);
+		}
+
+		if ( $items ) {
+			$bloques[] = array(
+				'titulo' => 'Pagos y bajas',
+				'url'    => aumbral_app_url( self::SLUG ),
+				'items'  => $items,
+			);
+		}
+		return $bloques;
+	}
 
 	/* ───────────── Bajas voluntarias ───────────── */
 

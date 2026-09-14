@@ -27,6 +27,7 @@ final class AUmbral_Planes {
 		add_filter( 'aumbral_app_modulos', array( $this, 'registrar' ) );
 		add_filter( 'pre_wp_mail', array( $this, 'silenciar_correo' ), 20, 2 );
 		add_action( 'admin_post_aumbral_planes_accion', array( $this, 'accion' ) );
+		add_filter( 'aumbral_app_resumen', array( $this, 'resumen' ) );
 		// Copia propia de cada envío nuevo: la app no depende de que Elementor conserve sus tablas.
 		add_action( 'elementor_pro/forms/new_record', array( $this, 'on_envio' ), 20, 2 );
 	}
@@ -432,6 +433,42 @@ final class AUmbral_Planes {
 	public function badge() {
 		$c = $this->contadores();
 		return $c['pendiente'] + $c['vencen'];
+	}
+
+	/** Bloque del resumen diario: lo que hay que cargar hoy en TrainingPeaks. */
+	public function resumen( $bloques ) {
+		$hoy   = current_time( 'Y-m-d' );
+		$items = array();
+
+		foreach ( $this->filas( "estado='inicio' AND fecha_paso <= %s", array( $hoy ), 'fecha_paso ASC' ) as $f ) {
+			$destino = $f['plan_destino'] ? str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $f['plan_destino'] ) : '';
+			$items[] = array(
+				'texto'   => trim( $f['nombre'] . ' ' . $f['apellidos'] ) . ' pasa al plan real',
+				'detalle' => ( $destino ? 'Plan: ' . $destino . '. ' : '' )
+					. ( $f['modalidad'] ? $f['modalidad'] . '. ' : '' )
+					. ( $f['fecha_paso'] === $hoy ? 'Le toca hoy.' : 'Le tocaba el ' . wp_date( 'j M', strtotime( $f['fecha_paso'] ) ) . '.' ),
+				'urgente' => true,
+			);
+		}
+
+		foreach ( $this->filas( "estado='pendiente'", array(), 'fecha ASC' ) as $f ) {
+			$plan    = str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $f['slug'] );
+			$items[] = array(
+				'texto'   => trim( $f['nombre'] . ' ' . $f['apellidos'] ) . ' espera su plan',
+				'detalle' => $plan . ( $f['modalidad'] ? ' · ' . mb_strtolower( $f['modalidad'] ) : '' )
+					. ( $f['lleva_inicio'] ? ' · con 2 semanas de inicio' : ' · directo' ),
+				'urgente' => false,
+			);
+		}
+
+		if ( $items ) {
+			$bloques[] = array(
+				'titulo' => 'Planes',
+				'url'    => aumbral_app_url( self::SLUG ),
+				'items'  => $items,
+			);
+		}
+		return $bloques;
 	}
 
 	/* ───────────── Acciones ───────────── */

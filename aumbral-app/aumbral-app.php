@@ -376,6 +376,8 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('<?php echo es
 	}
 }
 
+require_once __DIR__ . '/resumen.php';
+
 add_action( 'plugins_loaded', function () {
 	AUmbral_App::i();
 }, 5 );

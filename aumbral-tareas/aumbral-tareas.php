@@ -36,6 +36,7 @@ final class AUmbral_Tareas {
 	private function __construct() {
 		add_filter( 'aumbral_app_modulos', array( $this, 'registrar' ) );
 		add_action( 'admin_post_aumbral_tareas_accion', array( $this, 'accion' ) );
+		add_filter( 'aumbral_app_resumen', array( $this, 'resumen' ), 10, 2 );
 	}
 
 	public function registrar( $m ) {
@@ -49,6 +50,37 @@ final class AUmbral_Tareas {
 			'render' => array( $this, 'cuerpo' ),
 		);
 		return $m;
+	}
+
+	/** Bloque del resumen diario: tareas de esa persona con fecha para hoy o pasada. */
+	public function resumen( $bloques, $uid = 0 ) {
+		$yo = $uid === 368 ? 'julia' : ( $uid === 1 ? 'eduardo' : '' );
+		if ( ! $yo ) return $bloques;
+
+		$hoy    = current_time( 'Y-m-d' );
+		$manana = gmdate( 'Y-m-d', strtotime( $hoy . ' +1 day' ) );
+		$items  = array();
+
+		foreach ( $this->filas(
+			"status IN ('pendiente','progreso') AND assigned_to IN (%s,'ambos') AND due_date IS NOT NULL AND due_date <= %s",
+			array( $yo, $manana )
+		) as $f ) {
+			$items[] = array(
+				'texto'   => $f['text'],
+				'detalle' => $f['due_date'] === $hoy ? 'Para hoy.'
+					: ( $f['due_date'] === $manana ? 'Para mañana.' : 'Se pasó el ' . wp_date( 'j M', strtotime( $f['due_date'] ) ) . '.' ),
+				'urgente' => $f['due_date'] <= $hoy,
+			);
+		}
+
+		if ( $items ) {
+			$bloques[] = array(
+				'titulo' => 'Tareas',
+				'url'    => aumbral_app_url( self::SLUG ),
+				'items'  => $items,
+			);
+		}
+		return $bloques;
 	}
 
 	/* ───────────── Datos ───────────── */
