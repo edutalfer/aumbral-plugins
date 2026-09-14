@@ -13,7 +13,7 @@ final class AUmbral_Planes {
 	const SLUG  = 'planes';
 	const TABLA = 'aumbral_planes';
 	const CAP   = 'manage_woocommerce';
-	const DB    = 1;
+	const DB    = 2;
 
 	private static $inst;
 	public static function i() { return self::$inst ?: ( self::$inst = new self() ); }
@@ -73,6 +73,7 @@ final class AUmbral_Planes {
 			estado varchar(20) NOT NULL DEFAULT 'pendiente',
 			fecha_inicio date DEFAULT NULL,
 			fecha_paso date DEFAULT NULL,
+			plan_destino varchar(190) DEFAULT '',
 			nota text,
 			actor bigint(20) unsigned DEFAULT 0,
 			updated_at datetime DEFAULT NULL,
@@ -451,6 +452,28 @@ final class AUmbral_Planes {
 			exit;
 		}
 
+		// La persona ya tiene un plan en marcha: esta solicitud solo dice a donde ir despues.
+		if ( $que === 'fusionar' && $fila ) {
+			$curso = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM $t WHERE email = %s AND estado = 'inicio' AND submission_id <> %d ORDER BY fecha DESC LIMIT 1",
+				$fila['email'], $id ), ARRAY_A );
+			if ( $curso ) {
+				$wpdb->update( $t, array(
+					'plan_destino' => $fila['slug'],
+					'updated_at'   => current_time( 'mysql' ),
+					'actor'        => get_current_user_id(),
+				), array( 'submission_id' => $curso['submission_id'] ) );
+				$wpdb->update( $t, array(
+					'estado'     => 'descartado',
+					'nota'       => 'Unida a su plan en curso: al terminar las 2 semanas pasa a ' . $fila['slug'] . '.',
+					'updated_at' => current_time( 'mysql' ),
+					'actor'      => get_current_user_id(),
+				), array( 'submission_id' => $id ) );
+			}
+			wp_safe_redirect( wp_get_referer() ?: aumbral_app_url( self::SLUG ) );
+			exit;
+		}
+
 		if ( $fila ) {
 			$up = array( 'actor' => get_current_user_id(), 'updated_at' => current_time( 'mysql' ) );
 
@@ -472,7 +495,7 @@ final class AUmbral_Planes {
 					$up['estado'] = 'hecho';
 				}
 			}
-			if ( $que === 'plan_real' ) $up['estado'] = 'hecho';
+			if ( $que === 'plan_real' ) { $up['estado'] = 'hecho'; $up['plan_destino'] = ''; }
 			if ( $que === 'descartar' ) $up['estado'] = 'descartado';
 			if ( $que === 'reabrir' )   $up['estado'] = 'pendiente';
 
@@ -510,6 +533,12 @@ final class AUmbral_Planes {
 
 		$todas  = $this->filas( "fecha >= %s", array( gmdate( 'Y-m-d', strtotime( '-30 days' ) ) ) );
 		$avisos = $this->avisos( $todas );
+
+		// Indice de solicitudes vivas por persona, para relacionar unas con otras.
+		$vivas = array();
+		foreach ( $this->filas( "estado IN ('pendiente','inicio')" ) as $x ) {
+			if ( $x['email'] ) $vivas[ $x['email'] ][] = $x;
+		}
 		?>
  <div class="card">
  <?php if ( $c['pendiente'] || $c['vencen'] ) : ?>
@@ -577,6 +606,15 @@ final class AUmbral_Planes {
 	);
 	$e = isset( $et[ $f['estado'] ] ) ? $et[ $f['estado'] ] : array( $f['estado'], 'gy' );
 	$aviso = isset( $avisos[ $f['email'] ] ) && $f['estado'] === 'pendiente' ? $avisos[ $f['email'] ] : '';
+	$rel = array();
+	foreach ( $vivas[ $f['email'] ] ?? array() as $x ) {
+		if ( (int) $x['submission_id'] !== (int) $f['submission_id'] ) $rel[] = $x;
+	}
+	$en_curso = null;
+	foreach ( $rel as $x ) if ( $x['estado'] === 'inicio' ) $en_curso = $x;
+	$otra_pend = null;
+	foreach ( $rel as $x ) if ( $x['estado'] === 'pendiente' ) $otra_pend = $x;
+
 	$brd = trim( (string) $f['mensaje'] ) !== '' ? $this->borrador( $f ) : '';
 	$avp = class_exists( 'AUP_Pagos' ) && in_array( $f['estado'], array( 'pendiente', 'inicio' ), true )
 		? AUP_Pagos::i()->aviso_cliente( $f['email'] ) : '';
@@ -609,6 +647,34 @@ final class AUmbral_Planes {
 
   <?php if ( $aviso ) : ?><div class="acc" style="background:var(--rs);color:var(--r)"><?php echo esc_html( $aviso ); ?></div><?php endif; ?>
 
+  <?php if ( $f['estado'] === 'pendiente' && $en_curso ) : ?>
+   <div class="acc" style="background:var(--azs);color:var(--az)">
+    <b>Ya tiene un plan en marcha.</b> Está en semanas de inicio desde el
+    <?php echo esc_html( wp_date( 'j M', strtotime( $en_curso['fecha_inicio'] ) ) ); ?> y pasa al plan real el
+    <b><?php echo esc_html( wp_date( 'j M', strtotime( $en_curso['fecha_paso'] ) ) ); ?></b>.
+    Si esta solicitud solo dice a qué plan pasar, únelas y no cargues nada ahora.
+   </div>
+  <?php endif; ?>
+
+  <?php if ( $f['estado'] === 'pendiente' && $otra_pend ) : ?>
+   <div class="acc" style="background:var(--ams);color:var(--am)">
+    Tiene otra solicitud sin cargar del <?php echo esc_html( wp_date( 'j M', strtotime( $otra_pend['fecha'] ) ) ); ?>
+    (<?php echo esc_html( str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $otra_pend['slug'] ) ); ?>). Manda la más reciente.
+   </div>
+  <?php endif; ?>
+
+  <?php if ( $f['estado'] === 'inicio' && $f['plan_destino'] ) : ?>
+   <div class="acc" style="background:var(--azs);color:var(--az)">
+    Al terminar las 2 semanas pasa a <b><?php echo esc_html( str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $f['plan_destino'] ) ); ?></b>.
+   </div>
+  <?php endif; ?>
+
+  <?php if ( $f['estado'] === 'inicio' && $otra_pend ) : ?>
+   <div class="acc" style="background:var(--ams);color:var(--am)">
+    Ha mandado otra solicitud el <?php echo esc_html( wp_date( 'j M', strtotime( $otra_pend['fecha'] ) ) ); ?>: revísala en Pendientes.
+   </div>
+  <?php endif; ?>
+
   <?php if ( $avp ) : ?><div class="acc" style="background:var(--rs);color:var(--r)"><b>Ojo con el pago:</b> <?php echo esc_html( $avp ); ?></div><?php endif; ?>
 
   <?php if ( $nuevo ) : ?><div class="acc" style="background:var(--ams);color:var(--am)">Dice en su mensaje que es nuevo, pero el formulario no lo pregunta. Si es su primer plan, cárgalo con las 2 semanas de inicio.</div><?php endif; ?>
@@ -635,7 +701,10 @@ final class AUmbral_Planes {
     <input type="hidden" name="action" value="aumbral_planes_accion">
     <input type="hidden" name="id" value="<?php echo (int) $f['submission_id']; ?>">
     <?php if ( $f['estado'] === 'pendiente' ) : ?>
-     <button class="b<?php echo $f['lleva_inicio'] ? '' : ' p'; ?>" name="que" value="cargado_directo">Plan cargado</button>
+     <?php if ( $en_curso ) : ?>
+      <button class="b p" name="que" value="fusionar">Es la misma persona</button>
+     <?php endif; ?>
+     <button class="b<?php echo $f['lleva_inicio'] || $en_curso ? '' : ' p'; ?>" name="que" value="cargado_directo">Plan cargado</button>
      <button class="b<?php echo $f['lleva_inicio'] ? ' p' : ''; ?>" name="que" value="cargado_inicio">Cargado plan inicio</button>
      <button class="b o" name="que" value="descartar">Descartar</button>
     <?php elseif ( $f['estado'] === 'inicio' ) : ?>
