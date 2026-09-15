@@ -379,6 +379,23 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('<?php echo es
 
 require_once __DIR__ . '/resumen.php';
 
+/**
+ * Remitente de los correos del sitio.
+ * WordPress usa por defecto «wordpress@<dominio>», que no es un buzón real y nadie lee si
+ * alguien responde. Se sustituye por info@aumbral.com, pero SOLO cuando el valor es ese
+ * predeterminado: si otro plugin fija su propio remitente a propósito (WooCommerce lo hace),
+ * se respeta tal cual.
+ */
+add_filter( 'wp_mail_from', function ( $email ) {
+	$host = wp_parse_url( network_home_url(), PHP_URL_HOST );
+	$host = preg_replace( '/^www\./i', '', (string) $host );
+	return $email === 'wordpress@' . $host ? 'info@aumbral.com' : $email;
+}, 10 );
+
+add_filter( 'wp_mail_from_name', function ( $nombre ) {
+	return $nombre === 'WordPress' ? 'A Umbral' : $nombre;
+}, 10 );
+
 add_action( 'plugins_loaded', function () {
 	AUmbral_App::i();
 }, 5 );
