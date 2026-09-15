@@ -25,6 +25,9 @@ final class AUP_Pagos {
 	private function __construct() {
 		add_action( 'admin_menu',               array( $this, 'menu' ) );
 		add_action( 'admin_post_aup_pagos_gestionar', array( $this, 'act_gestionar' ) );
+		add_action( 'admin_post_aup_bclb', array( $this, 'act_bclb' ) );
+		add_action( self::BCLB_HOOK, array( $this, 'bclb_cron' ) );
+		add_action( 'init', array( $this, 'bclb_programar' ) );
 		add_action( 'admin_post_aup_pagos_ajustes',   array( $this, 'act_ajustes' ) );
 		add_action( 'admin_post_aup_pagos_digest_now', array( $this, 'act_digest_now' ) );
 
@@ -859,6 +862,88 @@ final class AUP_Pagos {
 		unset( $r['personas'] );
 		$r['pagos'] = $pagos;
 		return $r;
+	}
+
+
+	/* ─────── Aviso trimestral del club por correo ─────── */
+
+	const BCLB_HOOK  = 'aup_bclb_trimestral';
+	const BCLB_EMAIL = 'aup_bclb_email';
+
+	public function bclb_destinatario() {
+		return get_option( self::BCLB_EMAIL ) ?: ( get_userdata( 1 ) ? get_userdata( 1 )->user_email : get_option( 'admin_email' ) );
+	}
+
+	public function bclb_programar() {
+		if ( ! wp_next_scheduled( self::BCLB_HOOK ) ) {
+			$t = new DateTime( 'tomorrow 09:00:00', wp_timezone() );
+			wp_schedule_event( $t->getTimestamp(), 'daily', self::BCLB_HOOK );
+		}
+	}
+
+	/**
+	 * Se ejecuta a diario pero solo actúa el día 1 de enero, abril, julio u octubre:
+	 * justo cuando acaba de cerrarse un trimestre. Comprobar la fecha cada día es más
+	 * fiable que programar cuatro citas al año que se pierden si el cron falla un día.
+	 */
+	public function bclb_cron() {
+		$hoy = new DateTime( current_time( 'Y-m-d' ), wp_timezone() );
+		if ( (int) $hoy->format( 'j' ) !== 1 ) return;
+		if ( ! in_array( (int) $hoy->format( 'n' ), array( 1, 4, 7, 10 ), true ) ) return;
+
+		$ayer = ( clone $hoy )->modify( '-1 day' );
+		$t    = $this->trimestre( $ayer->format( 'Y-m-d' ) );
+
+		if ( get_option( 'aup_bclb_enviado' ) === $t['clave'] ) return; // ya salió
+		if ( $this->bclb_enviar( $t ) ) update_option( 'aup_bclb_enviado', $t['clave'], false );
+	}
+
+	/** Manda el desglose de un trimestre: base imponible, IVA y total. */
+	public function bclb_enviar( $t ) {
+		$r   = $this->bclb( $t['desde'], $t['hasta'] );
+		$eur = function ( $n ) { return number_format( (float) $n, 2, ',', '.' ) . ' €'; };
+
+		$h  = '<div style="background:#fbfaf8;padding:26px 14px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#191614">';
+		$h .= '<div style="max-width:460px;margin:0 auto">';
+		$h .= '<div style="font-size:13px;color:#8c867f;letter-spacing:.04em;text-transform:uppercase">A Umbral · Club BCLB</div>';
+		$h .= '<div style="font-size:24px;font-weight:600;margin:6px 0 18px">Factura de ' . esc_html( $t['etq'] ) . '</div>';
+		$h .= '<div style="background:#fff;border-radius:16px;padding:22px">';
+		$h .= '<table style="width:100%;border-collapse:collapse;font-size:15px">';
+		$h .= '<tr><td style="padding:9px 0;color:#8c867f">Base imponible</td><td style="padding:9px 0;text-align:right;font-weight:600">' . esc_html( $eur( $r['base'] ) ) . '</td></tr>';
+		$h .= '<tr><td style="padding:9px 0;color:#8c867f;border-bottom:1px solid #efedea">IVA 21%</td><td style="padding:9px 0;text-align:right;font-weight:600;border-bottom:1px solid #efedea">' . esc_html( $eur( $r['iva'] ) ) . '</td></tr>';
+		$h .= '<tr><td style="padding:14px 0 0;font-weight:600">Total</td><td style="padding:14px 0 0;text-align:right;font-weight:600;font-size:19px;color:#ed4044">' . esc_html( $eur( $r['club'] ) ) . '</td></tr>';
+		$h .= '</table></div>';
+		$h .= '<div style="text-align:center;font-size:11.5px;color:#b4aea7;margin-top:18px">Cuotas mensuales del trimestre, descontada la comisión de Stripe.</div>';
+		$h .= '</div></div>';
+
+		add_filter( 'wp_mail_content_type', array( $this, 'bclb_html' ) );
+		$ok = wp_mail(
+			$this->bclb_destinatario(),
+			'Club BCLB · ' . $t['corto'] . ': ' . $eur( $r['club'] ),
+			$h
+		);
+		remove_filter( 'wp_mail_content_type', array( $this, 'bclb_html' ) );
+		return $ok;
+	}
+
+	public function bclb_html() { return 'text/html'; }
+
+	/** Guardar destinatario o mandar el aviso a mano desde la app. */
+	public function act_bclb() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'No autorizado' );
+		check_admin_referer( 'aup_bclb' );
+
+		if ( ! empty( $_POST['email'] ) ) {
+			$m = sanitize_email( wp_unslash( $_POST['email'] ) );
+			if ( is_email( $m ) ) update_option( self::BCLB_EMAIL, $m, false );
+		}
+		if ( ! empty( $_POST['enviar'] ) ) {
+			$clave = sanitize_text_field( $_POST['t'] ?? '' );
+			$trims = $this->trimestres( 6 );
+			if ( isset( $trims[ $clave ] ) ) $this->bclb_enviar( $trims[ $clave ] );
+		}
+		wp_safe_redirect( wp_get_referer() ?: aumbral_app_url( 'pagos' ) );
+		exit;
 	}
 
 	/* ═══════════════ BAJAS VOLUNTARIAS ═══════════════ */

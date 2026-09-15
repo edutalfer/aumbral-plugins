@@ -203,6 +203,26 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
   <?php endif; ?>
  </div>
 
+ <div class="caso" style="margin-top:14px">
+  <div class="f1"><span class="tag gy">Aviso por correo</span></div>
+  <div class="acc" style="margin-top:12px">
+   El día 1 de enero, abril, julio y octubre sale un correo con la base imponible, el IVA y el total
+   del trimestre recién cerrado.
+   <?php $env = get_option( 'aup_bclb_enviado' ); ?>
+   <?php if ( $env ) : ?><br>Último enviado: <b><?php echo esc_html( $env ); ?></b>.<?php endif; ?>
+  </div>
+  <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+   <?php wp_nonce_field( 'aup_bclb' ); ?>
+   <input type="hidden" name="action" value="aup_bclb">
+   <input type="hidden" name="t" value="<?php echo esc_attr( $t['clave'] ); ?>">
+   <div class="nf">
+    <input type="email" name="email" placeholder="correo…" value="<?php echo esc_attr( $P->bclb_destinatario() ); ?>">
+    <button class="b">Guardar</button>
+   </div>
+   <div class="nf"><button class="b o" name="enviar" value="1">Enviarme ahora el de <?php echo esc_html( $t['corto'] ); ?></button></div>
+  </form>
+ </div>
+
  <div class="chips">
   <a href="<?php echo esc_url( add_query_arg( 'v', 'abiertos', $base_url ) ); ?>">&larr; Pagos</a>
  <?php foreach ( $trims as $k => $x ) {
