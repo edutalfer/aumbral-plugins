@@ -754,14 +754,33 @@ final class AUP_Pagos {
 		global $wpdb;
 		$cup = "'" . implode( "','", array_map( 'esc_sql', self::BCLB_CUPONES ) ) . "'";
 
-		// Quien pertenece al club lo dice su SUSCRIPCION, no cada pedido: las renovaciones
-		// anuales, los prorrateos y algunos cobros sin descuento no copian el cupon.
-		$subs = $wpdb->get_col(
-			"SELECT DISTINCT p.ID FROM {$wpdb->posts} p
+		// Quien pertenece al club lo dice su SUSCRIPCION, no cada pedido: los prorrateos y
+		// algunos cobros sin descuento no copian el cupon.
+		// La factura del club cubre solo las cuotas periodicas NO anuales.
+		$todas = $wpdb->get_results(
+			"SELECT p.ID, p.post_parent,
+			   MAX(CASE WHEN m.meta_key='_billing_period' THEN m.meta_value END) AS periodo
+			 FROM {$wpdb->posts} p
 			 JOIN {$wpdb->prefix}woocommerce_order_items i
 			   ON i.order_id = p.ID AND i.order_item_type = 'coupon' AND i.order_item_name IN ($cup)
-			 WHERE p.post_type = 'shop_subscription'" );
-		$in = $subs ? implode( ',', array_map( 'intval', $subs ) ) : '0';
+			 JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
+			 WHERE p.post_type = 'shop_subscription'
+			 GROUP BY p.ID, p.post_parent", ARRAY_A );
+
+		$subs = array();   // suscripciones del club que facturan al club (no anuales)
+		$anu  = array();   // suscripciones anuales, fuera del reparto
+		$anuP = array();   // sus pedidos iniciales, que si llevan el cupon
+		foreach ( $todas as $x ) {
+			if ( $x['periodo'] === 'year' ) {
+				$anu[] = (int) $x['ID'];
+				if ( $x['post_parent'] ) $anuP[] = (int) $x['post_parent'];
+			} else {
+				$subs[] = (int) $x['ID'];
+			}
+		}
+		$in   = $subs ? implode( ',', $subs ) : '0';
+		$inA  = $anu  ? implode( ',', $anu )  : '0';
+		$inAP = $anuP ? implode( ',', $anuP ) : '0';
 
 		$filas = $wpdb->get_results( $wpdb->prepare(
 			"SELECT p.ID, p.post_date, p.post_status,
@@ -784,6 +803,10 @@ final class AUP_Pagos {
 			                 WHERE meta_key IN ('_subscription_renewal','_subscription_switch','_subscription_resubscribe')
 			                   AND meta_value IN ($in))
 			   )
+			   AND p.ID NOT IN ($inAP)
+			   AND p.ID NOT IN (SELECT post_id FROM {$wpdb->postmeta}
+			                    WHERE meta_key IN ('_subscription_renewal','_subscription_switch','_subscription_resubscribe')
+			                      AND meta_value IN ($inA))
 			 GROUP BY p.ID, p.post_date, p.post_status
 			 ORDER BY p.post_date ASC", $desde, $hasta
 		), ARRAY_A );
