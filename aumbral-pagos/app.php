@@ -161,18 +161,6 @@ final class AUP_Pagos_App {
 
 		$eur = function ( $n ) { return number_format( (float) $n, 2, ',', '.' ) . ' €'; };
 
-		// Agrupado por persona, que es como se revisa
-		$gente = array();
-		foreach ( $r['pagos'] as $p ) {
-			$k = $p['email'] ?: $p['cliente'];
-			if ( ! isset( $gente[ $k ] ) ) $gente[ $k ] = array( 'cliente' => $p['cliente'], 'n' => 0, 'total' => 0, 'club' => 0, 'sin_cupon' => 0 );
-			$gente[ $k ]['n']++;
-			if ( ! empty( $p['sin_cupon'] ) ) $gente[ $k ]['sin_cupon']++;
-			$gente[ $k ]['total'] += $p['total'];
-			$gente[ $k ]['club']  += $p['club'];
-		}
-		uasort( $gente, function ( $a, $b ) { return $b['club'] <=> $a['club']; } );
-
 		$cifra = explode( ',', number_format( $r['base'], 2, ',', '.' ) );
 		?>
  <div class="card">
@@ -182,7 +170,13 @@ final class AUP_Pagos_App {
    <div><span class="dot" style="background:var(--r)"></span>IVA 21% <b><?php echo esc_html( $eur( $r['iva'] ) ); ?></b></div>
    <div><span class="dot" style="background:var(--ink)"></span>Total <b><?php echo esc_html( $eur( $r['club'] ) ); ?></b></div>
   </div>
-  <div class="acc" style="margin-top:16px" id="bclbtxt">Club BCLB · <?php echo esc_html( $t['etq'] ); ?>
+  <div class="meta">
+   <span class="pi"><b><?php echo (int) $r['n']; ?></b> pagos cobrados</span>
+   <span class="pi"><b><?php echo (int) $r['suscriptores']; ?></b> suscriptores</span>
+   <span class="pi">cobrado <b><?php echo esc_html( $eur( $r['cobrado'] ) ); ?></b></span>
+   <span class="pi">Stripe <b><?php echo esc_html( $eur( $r['fees'] ) ); ?></b></span>
+  </div>
+  <div class="acc" style="margin-top:16px;white-space:pre-wrap" id="bclbtxt">Club BCLB · <?php echo esc_html( $t['etq'] ); ?>
 Pagos: <?php echo (int) $r['n']; ?> de <?php echo (int) $r['suscriptores']; ?> suscriptores
 Cobrado: <?php echo esc_html( $eur( $r['cobrado'] ) ); ?>
 Comisiones de Stripe: <?php echo esc_html( $eur( $r['fees'] ) ); ?>
@@ -197,8 +191,8 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
   </div>
   <?php if ( $r['sin_cupon'] ) : ?>
    <div class="acc" style="background:var(--azs);color:var(--az);margin-top:10px">
-    <?php echo (int) $r['sin_cupon']; ?> pago(s) sin el cupón en el pedido, contados porque su suscripción sí es del club
-    (renovaciones anuales, prorrateos o cobros en los que el descuento no se aplicó). Van marcados abajo.
+    <?php echo (int) $r['sin_cupon']; ?> pago(s) sin el cupón en el pedido, contados porque su suscripción sí es del club:
+    prorrateos por cambio de plan o cobros en los que el descuento no llegó a aplicarse.
    </div>
   <?php endif; ?>
 
@@ -219,24 +213,7 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
  } ?>
  </div>
 
- <h2>Suscriptores <span><?php echo count( $gente ) . ' · ' . (int) $r['n']; ?> pagos cobrados</span></h2>
-
- <?php if ( ! $gente ) : ?>
-  <div class="zero"><span class="em">&#128202;</span><b>Sin pagos</b><p>No hay pagos del club en este trimestre.</p></div>
- <?php endif; ?>
-
- <?php foreach ( $gente as $g ) : ?>
- <article class="caso">
-  <div class="f1">
-   <span class="tag gy"><?php echo (int) $g['n']; ?> pago<?php echo $g['n'] === 1 ? '' : 's'; ?></span>
-   <span class="hace"><?php echo esc_html( $eur( $g['total'] ) ); ?> cobrados</span>
-  </div>
-  <div class="nom" style="font-size:16px"><?php echo esc_html( $g['cliente'] ); ?></div>
-  <div class="meta"><span class="pi">al club <b><?php echo esc_html( $eur( $g['club'] ) ); ?></b></span>
-   <?php if ( ! empty( $g['sin_cupon'] ) ) : ?><span class="pi az"><?php echo (int) $g['sin_cupon']; ?> sin cupón</span><?php endif; ?>
-  </div>
- </article>
- <?php endforeach;
+ <?php
 	}
 
 	/* ───────────── Bajas voluntarias ───────────── */
