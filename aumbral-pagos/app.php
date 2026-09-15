@@ -148,6 +148,87 @@ final class AUP_Pagos_App {
 		return $bloques;
 	}
 
+
+	/* ───────────── Club BCLB ───────────── */
+
+	public function cuerpo_bclb( $ctx ) {
+		$base_url = $ctx['base'];
+		$P        = AUP_Pagos::i();
+		$trims    = $P->trimestres( 4 );
+		$clave    = sanitize_text_field( $ctx['query']['t'] ?? '' );
+		$t        = $trims[ $clave ] ?? reset( $trims );
+		$r        = $P->bclb( $t['desde'], $t['hasta'] );
+
+		$eur = function ( $n ) { return number_format( (float) $n, 2, ',', '.' ) . ' €'; };
+
+		// Agrupado por persona, que es como se revisa
+		$gente = array();
+		foreach ( $r['pagos'] as $p ) {
+			$k = $p['email'] ?: $p['cliente'];
+			if ( ! isset( $gente[ $k ] ) ) $gente[ $k ] = array( 'cliente' => $p['cliente'], 'n' => 0, 'total' => 0, 'club' => 0 );
+			$gente[ $k ]['n']++;
+			$gente[ $k ]['total'] += $p['total'];
+			$gente[ $k ]['club']  += $p['club'];
+		}
+		uasort( $gente, function ( $a, $b ) { return $b['club'] <=> $a['club']; } );
+
+		$cifra = explode( ',', number_format( $r['base'], 2, ',', '.' ) );
+		?>
+ <div class="card">
+  <div class="lbl">Base imponible de la factura · <?php echo esc_html( $t['etq'] ); ?></div>
+  <div class="big"><?php echo esc_html( $cifra[0] ); ?><sup><?php echo esc_html( $cifra[1] ); ?> &euro;</sup></div>
+  <div class="leg" style="margin-top:16px">
+   <div><span class="dot" style="background:var(--r)"></span>IVA 21% <b><?php echo esc_html( $eur( $r['iva'] ) ); ?></b></div>
+   <div><span class="dot" style="background:var(--ink)"></span>Total <b><?php echo esc_html( $eur( $r['club'] ) ); ?></b></div>
+  </div>
+  <div class="acc" style="margin-top:16px" id="bclbtxt">Club BCLB · <?php echo esc_html( $t['etq'] ); ?>
+Pagos: <?php echo (int) $r['n']; ?> de <?php echo (int) $r['suscriptores']; ?> suscriptores
+Cobrado: <?php echo esc_html( $eur( $r['cobrado'] ) ); ?>
+Comisiones de Stripe: <?php echo esc_html( $eur( $r['fees'] ) ); ?>
+Neto: <?php echo esc_html( $eur( $r['neto'] ) ); ?>
+50% del club: <?php echo esc_html( $eur( $r['club'] ) ); ?>
+Base imponible: <?php echo esc_html( $eur( $r['base'] ) ); ?>
+IVA 21%: <?php echo esc_html( $eur( $r['iva'] ) ); ?>
+Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
+  <div class="bts">
+   <button class="b p" onclick="cp('bclbtxt')">Copiar para la factura</button>
+   <?php if ( ! $t['cerrado'] ) : ?><span class="pi al">trimestre en curso</span><?php endif; ?>
+  </div>
+  <?php if ( $r['sin_fee'] ) : ?>
+   <div class="acc" style="background:var(--ams);color:var(--am);margin-top:10px">
+    <?php echo (int) $r['sin_fee']; ?> pago(s) sin comisión de Stripe guardada: se han contado con comisión cero, así que el 50% sale algo alto en esos.
+   </div>
+  <?php endif; ?>
+ </div>
+
+ <div class="chips">
+  <a href="<?php echo esc_url( add_query_arg( 'v', 'abiertos', $base_url ) ); ?>">&larr; Pagos</a>
+ <?php foreach ( $trims as $k => $x ) {
+	printf( '<a class="%s" href="%s">%s</a>',
+		$k === $t['clave'] ? 'on' : '',
+		esc_url( add_query_arg( array( 'v' => 'bclb', 't' => $k ), $base_url ) ),
+		esc_html( $x['corto'] ) );
+ } ?>
+ </div>
+
+ <h2>Suscriptores <span><?php echo count( $gente ) . ' · ' . (int) $r['n']; ?> pagos cobrados</span></h2>
+
+ <?php if ( ! $gente ) : ?>
+  <div class="zero"><span class="em">&#128202;</span><b>Sin pagos</b><p>No hay pagos del club en este trimestre.</p></div>
+ <?php endif; ?>
+
+ <?php foreach ( $gente as $g ) : ?>
+ <article class="caso">
+  <div class="f1">
+   <span class="tag gy"><?php echo (int) $g['n']; ?> pago<?php echo $g['n'] === 1 ? '' : 's'; ?></span>
+   <span class="hace"><?php echo esc_html( $eur( $g['total'] ) ); ?> cobrados</span>
+  </div>
+  <div class="nom" style="font-size:16px"><?php echo esc_html( $g['cliente'] ); ?></div>
+  <div class="meta"><span class="pi">al club <b><?php echo esc_html( $eur( $g['club'] ) ); ?></b></span></div>
+ </article>
+ <?php endforeach;
+	}
+
 	/* ───────────── Bajas voluntarias ───────────── */
 
 	public function cuerpo_bajas( $ctx ) {
@@ -274,6 +355,10 @@ final class AUP_Pagos_App {
 	/* ───────────── Cuerpo de la pantalla ───────────── */
 
 	public function cuerpo( $ctx ) {
+		if ( sanitize_key( $ctx['query']['v'] ?? '' ) === 'bclb' ) {
+			$this->cuerpo_bclb( $ctx );
+			return;
+		}
 		if ( strpos( sanitize_key( $ctx['query']['v'] ?? '' ), 'baja' ) === 0 ) {
 			$this->cuerpo_bajas( $ctx );
 			return;
@@ -348,6 +433,7 @@ final class AUP_Pagos_App {
 		'esperar'     => array( 'En espera', $n['ESPERAR'] ),
 		'alta'        => array( 'Nunca pagó', $n['ALTA'] ),
 		'insistir'    => array( 'Insistir', count( $reint ) ),
+		'bclb'        => array( 'BCLB', 0 ),
 		'bajas'       => array( 'Bajas', $this->por_quitar() ),
 		'archivo'     => array( 'Archivo', 0 ),
 		'gestionados' => array( 'Hechos', 0 ),

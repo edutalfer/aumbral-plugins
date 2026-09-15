@@ -41,7 +41,7 @@ foreach ( $esperados as $e ) {
 
 // Vistas de cada módulo. Si una entra en bucle, el proceso muere y el wrapper lo detecta.
 $vistas = array(
-	'pagos'  => array( 'abiertos', 'contactar', 'esperar', 'alta', 'insistir', 'archivo', 'gestionados', 'todos', 'bajas', 'bajas_prog', 'bajas_hoy', 'bajas_hechas' ),
+	'pagos'  => array( 'abiertos', 'contactar', 'esperar', 'alta', 'insistir', 'archivo', 'gestionados', 'todos', 'bclb', 'bajas', 'bajas_prog', 'bajas_hoy', 'bajas_hechas' ),
 	'planes' => array( 'pendientes', 'vencen', 'inicio', 'hechos', 'todos' ),
 	'tareas' => array( 'mias', 'abiertas', 'eduardo', 'julia', 'horizonte', 'hechas' ),
 );

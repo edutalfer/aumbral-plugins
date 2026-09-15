@@ -707,6 +707,119 @@ final class AUP_Pagos {
 		return '';
 	}
 
+
+	/* ═══════════════ CLUB BCLB ═══════════════ */
+
+	const BCLB_CUPONES = array( 'clubbclb', 'clubbclb2' );
+	const BCLB_PARTE   = 0.50;  // porcentaje que corresponde al club
+	const BCLB_IVA     = 0.21;
+
+	/** Trimestre natural que contiene una fecha. Devuelve array( desde, hasta, etiqueta, clave ). */
+	public function trimestre( $ref = null ) {
+		$d   = new DateTime( $ref ?: current_time( 'Y-m-d' ), wp_timezone() );
+		$q   = (int) ceil( (int) $d->format( 'n' ) / 3 );
+		$a   = (int) $d->format( 'Y' );
+		$ini = new DateTime( sprintf( '%d-%02d-01 00:00:00', $a, ( $q - 1 ) * 3 + 1 ), wp_timezone() );
+		$fin = ( clone $ini )->modify( '+3 months' );
+		$mes = array( 1 => 'ene-mar', 2 => 'abr-jun', 3 => 'jul-sep', 4 => 'oct-dic' );
+		return array(
+			'desde'  => $ini->format( 'Y-m-d H:i:s' ),
+			'hasta'  => $fin->format( 'Y-m-d H:i:s' ),
+			'etq'    => 'T' . $q . ' ' . $a . ' · ' . $mes[ $q ],
+			'corto'  => 'T' . $q . ' ' . $a,
+			'clave'  => $a . 'Q' . $q,
+			'cerrado' => $fin->getTimestamp() <= current_time( 'timestamp' ),
+		);
+	}
+
+	/** Lista de trimestres seleccionables: el actual y los anteriores. */
+	public function trimestres( $cuantos = 4 ) {
+		$out = array();
+		$ref = new DateTime( current_time( 'Y-m-d' ), wp_timezone() );
+		for ( $i = 0; $i < $cuantos; $i++ ) {
+			$t = $this->trimestre( $ref->format( 'Y-m-d' ) );
+			$out[ $t['clave'] ] = $t;
+			$ref = new DateTime( $t['desde'], wp_timezone() );
+			$ref->modify( '-1 day' );
+		}
+		return $out;
+	}
+
+	/**
+	 * Pagos válidos de suscriptores del Club BCLB en un periodo, con el reparto calculado.
+	 * Regla: del importe cobrado se descuenta la comisión de Stripe, la mitad de lo que queda
+	 * corresponde al club, y esa mitad se desglosa en base imponible más IVA.
+	 */
+	public function bclb( $desde, $hasta ) {
+		global $wpdb;
+		$cup = "'" . implode( "','", array_map( 'esc_sql', self::BCLB_CUPONES ) ) . "'";
+
+		$filas = $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.ID, p.post_date, p.post_status,
+				MAX(CASE WHEN m.meta_key='_order_total'        THEN m.meta_value END) AS total,
+				MAX(CASE WHEN m.meta_key='_stripe_fee'         THEN m.meta_value END) AS fee,
+				MAX(CASE WHEN m.meta_key='_billing_email'      THEN m.meta_value END) AS email,
+				MAX(CASE WHEN m.meta_key='_billing_first_name' THEN m.meta_value END) AS nombre,
+				MAX(CASE WHEN m.meta_key='_billing_last_name'  THEN m.meta_value END) AS apellidos
+			 FROM {$wpdb->posts} p
+			 JOIN {$wpdb->prefix}woocommerce_order_items i
+			   ON i.order_id = p.ID AND i.order_item_type = 'coupon' AND i.order_item_name IN ($cup)
+			 JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
+			 WHERE p.post_type = 'shop_order'
+			   AND p.post_status IN ('wc-completed','wc-processing')
+			   AND p.post_date >= %s AND p.post_date < %s
+			 GROUP BY p.ID, p.post_date, p.post_status
+			 ORDER BY p.post_date ASC", $desde, $hasta
+		), ARRAY_A );
+
+		$pagos = array();
+		$r = array(
+			'n' => 0, 'cobrado' => 0.0, 'fees' => 0.0, 'neto' => 0.0,
+			'club' => 0.0, 'base' => 0.0, 'iva' => 0.0,
+			'sin_fee' => 0, 'personas' => array(),
+		);
+
+		foreach ( $filas as $f ) {
+			$total = (float) $f['total'];
+			$tiene = $f['fee'] !== null && $f['fee'] !== '';
+			$fee   = $tiene ? (float) $f['fee'] : 0.0;
+			$neto  = $total - $fee;
+			$club  = $neto * self::BCLB_PARTE;
+			$base  = $club / ( 1 + self::BCLB_IVA );
+			$iva   = $club - $base;
+			$mail  = strtolower( (string) $f['email'] );
+
+			$pagos[] = array(
+				'id'      => (int) $f['ID'],
+				'fecha'   => substr( $f['post_date'], 0, 10 ),
+				'cliente' => trim( $f['nombre'] . ' ' . $f['apellidos'] ) ?: $mail,
+				'email'   => $mail,
+				'total'   => $total,
+				'fee'     => $fee,
+				'sin_fee' => ! $tiene,
+				'neto'    => $neto,
+				'club'    => $club,
+				'base'    => $base,
+				'iva'     => $iva,
+			);
+
+			$r['n']++;
+			$r['cobrado'] += $total;
+			$r['fees']    += $fee;
+			$r['neto']    += $neto;
+			$r['club']    += $club;
+			$r['base']    += $base;
+			$r['iva']     += $iva;
+			if ( ! $tiene ) $r['sin_fee']++;
+			if ( $mail ) $r['personas'][ $mail ] = true;
+		}
+
+		$r['suscriptores'] = count( $r['personas'] );
+		unset( $r['personas'] );
+		$r['pagos'] = $pagos;
+		return $r;
+	}
+
 	/* ═══════════════ BAJAS VOLUNTARIAS ═══════════════ */
 
 	const META_BAJA = '_aumbral_tp_baja';
