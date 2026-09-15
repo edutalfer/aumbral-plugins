@@ -40,7 +40,39 @@ final class AUP_Pagos_App {
 		foreach ( AUP_Pagos::i()->casos() as $x ) {
 			if ( ! $x['gestionado'] && in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR', 'ALTA' ), true ) ) $n++;
 		}
-		return $n + $this->por_quitar();
+		return $n + $this->por_quitar() + count( $this->insistir() );
+	}
+
+	/** Días que se dejan pasar antes de volver a sacar un caso ya gestionado. */
+	const DIAS_INSISTIR = 5;
+
+	/**
+	 * Casos marcados como hechos que siguen sin resolverse.
+	 * Marcar «Hecho» significa «le he escrito», no «ha pagado»: si pasados unos días
+	 * la suscripción sigue sin estar al día, el caso vuelve a la superficie.
+	 */
+	public function insistir() {
+		$out = array();
+		$cli = AUP_Pagos::i()->clientes();
+
+		foreach ( AUP_Pagos::i()->casos() as $x ) {
+			if ( ! $x['gestionado'] || empty( $x['gestion']['fecha'] ) ) continue;
+			// Si ya canceló o se resolvió, no hay nada que insistir.
+			if ( ! in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ALTA', 'ESPERAR' ), true ) ) continue;
+
+			$mail = strtolower( (string) $x['email'] );
+			$est  = $cli[ $mail ]['estado'] ?? '';
+			if ( $est === 'active' ) continue; // volvió a estar al día: resuelto
+
+			$dias = (int) floor( ( current_time( 'timestamp' ) - (int) $x['gestion']['fecha'] ) / DAY_IN_SECONDS );
+			if ( $dias < self::DIAS_INSISTIR ) continue;
+
+			$x['dias_desde'] = $dias;
+			$out[] = $x;
+		}
+
+		usort( $out, function ( $a, $b ) { return $b['dias_desde'] <=> $a['dias_desde']; } );
+		return $out;
 	}
 
 	/** Bajas cuyo periodo pagado ya ha vencido y siguen en TrainingPeaks. */
@@ -86,6 +118,14 @@ final class AUP_Pagos_App {
 				'texto'   => $x['cliente'] . ': ' . $etq[ $x['veredicto'] ],
 				'detalle' => $x['importe'] . ' · ' . $x['motivo_es'],
 				'urgente' => $x['veredicto'] !== 'ALTA',
+			);
+		}
+
+		foreach ( $this->insistir() as $x ) {
+			$items[] = array(
+				'texto'   => $x['cliente'] . ': sigue sin pagar',
+				'detalle' => 'Le escribiste hace ' . $x['dias_desde'] . ' días. ' . $x['importe'] . '.',
+				'urgente' => true,
 			);
 		}
 
@@ -263,11 +303,15 @@ final class AUP_Pagos_App {
 			if ( $x['gestionado'] ) return false;
 			if ( $filtro === 'abiertos' )   return in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ESPERAR', 'ALTA' ), true );
 			if ( $filtro === 'alta' )       return $x['veredicto'] === 'ALTA';
+			if ( $filtro === 'insistir' )   return false; // se sirve aparte, ver mas abajo
 			if ( $filtro === 'sustituida' ) return in_array( $x['veredicto'], array( 'SUSTITUIDA', 'DUPLICADA' ), true );
 			if ( $filtro === 'archivo' )    return in_array( $x['veredicto'], array( 'PERDIDA', 'RESUELTO', 'SUSTITUIDA', 'DUPLICADA' ), true );
 			if ( $filtro === 'todos' )      return true;
 			return strtolower( $x['veredicto'] ) === $filtro;
 		} );
+
+		$reint = $this->insistir();
+		if ( $filtro === 'insistir' ) $lista = $reint;
 
 		$cifra = number_format( $total, 2, ',', '.' );
 		$part  = explode( ',', $cifra );
@@ -303,6 +347,7 @@ final class AUP_Pagos_App {
 		'contactar'   => array( 'Escribir', $n['CONTACTAR'] ),
 		'esperar'     => array( 'En espera', $n['ESPERAR'] ),
 		'alta'        => array( 'Nunca pagó', $n['ALTA'] ),
+		'insistir'    => array( 'Insistir', count( $reint ) ),
 		'bajas'       => array( 'Bajas', $this->por_quitar() ),
 		'archivo'     => array( 'Archivo', 0 ),
 		'gestionados' => array( 'Hechos', 0 ),
@@ -324,6 +369,7 @@ final class AUP_Pagos_App {
 	'contactar'   => array( 'Escribir hoy', 'no se arreglan solas' ),
 	'esperar'     => array( 'En espera', 'Stripe lo reintenta' ),
 	'alta'        => array( 'Nunca llegaron a pagar', 'altas sin primer pago' ),
+	'insistir'    => array( 'Sin respuesta', 'escritos y siguen sin pagar' ),
 	'archivo'     => array( 'Archivo', 'cerrado o irrelevante' ),
 	'gestionados' => array( 'Gestionados', 'ya te ocupaste' ),
 	'perdida'     => array( 'Perdidas', 'canceladas tras el fallo' ),
@@ -385,6 +431,19 @@ final class AUP_Pagos_App {
    <a class="b o" href="<?php echo esc_url( $x['url_admin'] ); ?>" target="_blank" rel="noopener">Ficha</a>
   </div>
 
+  <?php
+	$dd = ! empty( $x['gestion']['fecha'] ) ? (int) floor( ( current_time( 'timestamp' ) - (int) $x['gestion']['fecha'] ) / DAY_IN_SECONDS ) : 0;
+	$insiste = $x['gestionado'] && $dd >= self::DIAS_INSISTIR
+		&& in_array( $x['veredicto'], array( 'CONTACTAR', 'REVISAR', 'ALTA', 'ESPERAR' ), true )
+		&& ( AUP_Pagos::i()->clientes()[ strtolower( (string) $x['email'] ) ]['estado'] ?? '' ) !== 'active';
+  ?>
+  <?php if ( $insiste ) : ?>
+   <div class="acc" style="background:var(--rs);color:var(--r)">
+    <b>Le escribiste hace <?php echo (int) $dd; ?> días y sigue sin pagar.</b>
+    <?php echo $dd >= 21 ? ' Ya son tres semanas: quizá toque darlo por perdido.' : ' Toca insistir.'; ?>
+   </div>
+  <?php endif; ?>
+
   <?php if ( $x['gestionado'] ) : ?>
    <div class="hecho">&#10003;<span>Gestionado el <?php echo esc_html( wp_date( 'd/m/Y', $x['gestion']['fecha'] ) ); ?><?php echo $x['gestion']['nota'] ? ' — ' . esc_html( $x['gestion']['nota'] ) : ''; ?></span></div>
   <?php endif; ?>
@@ -395,7 +454,8 @@ final class AUP_Pagos_App {
    <input type="hidden" name="sub_id" value="<?php echo (int) $x['sub_id']; ?>">
    <input type="hidden" name="order_id" value="<?php echo (int) $x['order_id']; ?>">
    <?php if ( $x['gestionado'] ) : ?>
-    <input type="hidden" name="deshacer" value="1"><button class="b o">Reabrir</button>
+    <button class="b<?php echo $insiste ? ' p' : ''; ?>" name="nota" value="Insistido">Insistido hoy</button>
+    <button class="b o" name="deshacer" value="1">Reabrir</button>
    <?php else : ?>
     <input type="text" name="nota" placeholder="nota rápida…"><button class="b">Hecho</button>
    <?php endif; ?>
