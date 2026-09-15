@@ -754,20 +754,36 @@ final class AUP_Pagos {
 		global $wpdb;
 		$cup = "'" . implode( "','", array_map( 'esc_sql', self::BCLB_CUPONES ) ) . "'";
 
+		// Quien pertenece al club lo dice su SUSCRIPCION, no cada pedido: las renovaciones
+		// anuales, los prorrateos y algunos cobros sin descuento no copian el cupon.
+		$subs = $wpdb->get_col(
+			"SELECT DISTINCT p.ID FROM {$wpdb->posts} p
+			 JOIN {$wpdb->prefix}woocommerce_order_items i
+			   ON i.order_id = p.ID AND i.order_item_type = 'coupon' AND i.order_item_name IN ($cup)
+			 WHERE p.post_type = 'shop_subscription'" );
+		$in = $subs ? implode( ',', array_map( 'intval', $subs ) ) : '0';
+
 		$filas = $wpdb->get_results( $wpdb->prepare(
 			"SELECT p.ID, p.post_date, p.post_status,
 				MAX(CASE WHEN m.meta_key='_order_total'        THEN m.meta_value END) AS total,
 				MAX(CASE WHEN m.meta_key='_stripe_fee'         THEN m.meta_value END) AS fee,
 				MAX(CASE WHEN m.meta_key='_billing_email'      THEN m.meta_value END) AS email,
 				MAX(CASE WHEN m.meta_key='_billing_first_name' THEN m.meta_value END) AS nombre,
-				MAX(CASE WHEN m.meta_key='_billing_last_name'  THEN m.meta_value END) AS apellidos
+				MAX(CASE WHEN m.meta_key='_billing_last_name'  THEN m.meta_value END) AS apellidos,
+				EXISTS(SELECT 1 FROM {$wpdb->prefix}woocommerce_order_items c
+				       WHERE c.order_id = p.ID AND c.order_item_type='coupon' AND c.order_item_name IN ($cup)) AS con_cupon
 			 FROM {$wpdb->posts} p
-			 JOIN {$wpdb->prefix}woocommerce_order_items i
-			   ON i.order_id = p.ID AND i.order_item_type = 'coupon' AND i.order_item_name IN ($cup)
 			 JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
 			 WHERE p.post_type = 'shop_order'
 			   AND p.post_status IN ('wc-completed','wc-processing')
 			   AND p.post_date >= %s AND p.post_date < %s
+			   AND (
+			     p.ID IN (SELECT order_id FROM {$wpdb->prefix}woocommerce_order_items
+			              WHERE order_item_type='coupon' AND order_item_name IN ($cup))
+			     OR p.ID IN (SELECT post_id FROM {$wpdb->postmeta}
+			                 WHERE meta_key IN ('_subscription_renewal','_subscription_switch','_subscription_resubscribe')
+			                   AND meta_value IN ($in))
+			   )
 			 GROUP BY p.ID, p.post_date, p.post_status
 			 ORDER BY p.post_date ASC", $desde, $hasta
 		), ARRAY_A );
@@ -776,7 +792,7 @@ final class AUP_Pagos {
 		$r = array(
 			'n' => 0, 'cobrado' => 0.0, 'fees' => 0.0, 'neto' => 0.0,
 			'club' => 0.0, 'base' => 0.0, 'iva' => 0.0,
-			'sin_fee' => 0, 'personas' => array(),
+			'sin_fee' => 0, 'sin_cupon' => 0, 'personas' => array(),
 		);
 
 		foreach ( $filas as $f ) {
@@ -797,6 +813,7 @@ final class AUP_Pagos {
 				'total'   => $total,
 				'fee'     => $fee,
 				'sin_fee' => ! $tiene,
+				'sin_cupon' => empty( $f['con_cupon'] ),
 				'neto'    => $neto,
 				'club'    => $club,
 				'base'    => $base,
@@ -811,6 +828,7 @@ final class AUP_Pagos {
 			$r['base']    += $base;
 			$r['iva']     += $iva;
 			if ( ! $tiene ) $r['sin_fee']++;
+			if ( empty( $f['con_cupon'] ) ) $r['sin_cupon']++;
 			if ( $mail ) $r['personas'][ $mail ] = true;
 		}
 

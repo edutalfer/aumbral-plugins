@@ -165,8 +165,9 @@ final class AUP_Pagos_App {
 		$gente = array();
 		foreach ( $r['pagos'] as $p ) {
 			$k = $p['email'] ?: $p['cliente'];
-			if ( ! isset( $gente[ $k ] ) ) $gente[ $k ] = array( 'cliente' => $p['cliente'], 'n' => 0, 'total' => 0, 'club' => 0 );
+			if ( ! isset( $gente[ $k ] ) ) $gente[ $k ] = array( 'cliente' => $p['cliente'], 'n' => 0, 'total' => 0, 'club' => 0, 'sin_cupon' => 0 );
 			$gente[ $k ]['n']++;
+			if ( ! empty( $p['sin_cupon'] ) ) $gente[ $k ]['sin_cupon']++;
 			$gente[ $k ]['total'] += $p['total'];
 			$gente[ $k ]['club']  += $p['club'];
 		}
@@ -194,6 +195,13 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
    <button class="b p" onclick="cp('bclbtxt')">Copiar para la factura</button>
    <?php if ( ! $t['cerrado'] ) : ?><span class="pi al">trimestre en curso</span><?php endif; ?>
   </div>
+  <?php if ( $r['sin_cupon'] ) : ?>
+   <div class="acc" style="background:var(--azs);color:var(--az);margin-top:10px">
+    <?php echo (int) $r['sin_cupon']; ?> pago(s) sin el cupón en el pedido, contados porque su suscripción sí es del club
+    (renovaciones anuales, prorrateos o cobros en los que el descuento no se aplicó). Van marcados abajo.
+   </div>
+  <?php endif; ?>
+
   <?php if ( $r['sin_fee'] ) : ?>
    <div class="acc" style="background:var(--ams);color:var(--am);margin-top:10px">
     <?php echo (int) $r['sin_fee']; ?> pago(s) sin comisión de Stripe guardada: se han contado con comisión cero, así que el 50% sale algo alto en esos.
@@ -224,7 +232,9 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
    <span class="hace"><?php echo esc_html( $eur( $g['total'] ) ); ?> cobrados</span>
   </div>
   <div class="nom" style="font-size:16px"><?php echo esc_html( $g['cliente'] ); ?></div>
-  <div class="meta"><span class="pi">al club <b><?php echo esc_html( $eur( $g['club'] ) ); ?></b></span></div>
+  <div class="meta"><span class="pi">al club <b><?php echo esc_html( $eur( $g['club'] ) ); ?></b></span>
+   <?php if ( ! empty( $g['sin_cupon'] ) ) : ?><span class="pi az"><?php echo (int) $g['sin_cupon']; ?> sin cupón</span><?php endif; ?>
+  </div>
  </article>
  <?php endforeach;
 	}

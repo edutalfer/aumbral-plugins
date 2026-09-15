@@ -274,6 +274,7 @@ h2 span{font-size:13px;font-weight:400;color:var(--mut);text-align:right}
 .pi b{color:var(--ink);font-weight:600}
 .pi.al{background:var(--rs);color:var(--r)}
 .pi.ok{background:var(--grs);color:var(--gr)}
+.pi.az{background:var(--azs);color:var(--az)}
 .mot{margin-top:15px;font-size:14.5px;font-weight:500}
 .raw{font-size:12px;color:#a8a29a;margin-top:3px;font-weight:400}
 .acc{margin-top:12px;background:var(--bg);border-radius:14px;padding:13px 15px;font-size:13.5px;line-height:1.55;color:#4a4540}
