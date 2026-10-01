@@ -652,7 +652,7 @@ final class AUmbral_Planes {
 	$otra_pend = null;
 	foreach ( $rel as $x ) if ( $x['estado'] === 'pendiente' ) $otra_pend = $x;
 
-	$brd = trim( (string) $f['mensaje'] ) !== '' ? $this->borrador( $f ) : '';
+	$brd = $this->borrador( $f );
 	$avp = class_exists( 'AUP_Pagos' ) && in_array( $f['estado'], array( 'pendiente', 'inicio' ), true )
 		? AUP_Pagos::i()->aviso_cliente( $f['email'] ) : '';
 	$nuevo = ! $f['lleva_inicio'] && $f['estado'] === 'pendiente'
@@ -716,13 +716,15 @@ final class AUmbral_Planes {
 
   <?php if ( $nuevo ) : ?><div class="acc" style="background:var(--ams);color:var(--am)">Dice en su mensaje que es nuevo, pero el formulario no lo pregunta. Si es su primer plan, cárgalo con las 2 semanas de inicio.</div><?php endif; ?>
 
-  <?php if ( $brd ) : ?>
+  <?php if ( trim( (string) $f['mensaje'] ) !== '' ) : ?>
   <details open>
    <summary>Escribió un mensaje</summary>
    <div class="msg"><?php echo esc_html( $f['mensaje'] ); ?></div>
   </details>
+  <?php endif; ?>
+
   <details>
-   <summary>Responder desde info@aumbral.com</summary>
+   <summary>Responder</summary>
    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
     <?php wp_nonce_field( 'aumbral_enviar' ); ?>
     <input type="hidden" name="action" value="aumbral_enviar">
@@ -735,7 +737,6 @@ final class AUmbral_Planes {
     </div>
    </form>
   </details>
-  <?php endif; ?>
 
   <?php if ( $f['nota'] ) : ?><div class="hecho">&#9998;<span><?php echo esc_html( $f['nota'] ); ?></span></div><?php endif; ?>
 
@@ -757,7 +758,6 @@ final class AUmbral_Planes {
      <button class="b o" name="que" value="reabrir">Reabrir</button>
     <?php endif; ?>
    </form>
-   <a class="b<?php echo $brd ? ' p' : ''; ?>" target="_blank" rel="noopener" href="https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=<?php echo rawurlencode( $f['email'] ); ?>&su=<?php echo rawurlencode( 'Tu plan de entrenamiento en A Umbral' ); ?><?php echo $brd ? '&body=' . rawurlencode( $brd ) : ''; ?>"><?php echo $brd ? 'Responder' : 'Gmail'; ?></a>
    <?php if ( $f['user_id'] ) : ?>
     <a class="b o" target="_blank" rel="noopener" href="<?php echo esc_url( admin_url( 'user-edit.php?user_id=' . (int) $f['user_id'] ) ); ?>">Ficha</a>
    <?php endif; ?>

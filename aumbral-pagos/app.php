@@ -509,7 +509,7 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
 
   <?php if ( $msg ) : ?>
   <details>
-   <summary>Escribirle desde info@aumbral.com</summary>
+   <summary>Responder</summary>
    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
     <?php wp_nonce_field( 'aumbral_enviar' ); ?>
     <input type="hidden" name="action" value="aumbral_enviar">
@@ -526,7 +526,6 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
    <?php if ( $msg ) : ?>
     <button class="b p" onclick="cp('m<?php echo (int) $x['sub_id']; ?>')">Copiar mensaje</button>
     <button class="b" onclick="cp('u<?php echo (int) $x['sub_id']; ?>')">Copiar enlace</button>
-    <a class="b" target="_blank" rel="noopener" href="https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=<?php echo rawurlencode( $x['email'] ); ?>&su=<?php echo rawurlencode( 'Tu suscripción en A Umbral' ); ?>&body=<?php echo rawurlencode( $x['mensaje'] ); ?>">Gmail</a>
    <?php endif; ?>
    <a class="b o" href="<?php echo esc_url( $x['url_admin'] ); ?>" target="_blank" rel="noopener">Ficha</a>
   </div>
