@@ -338,6 +338,15 @@ body.esc .nav{max-width:560px}
 </div></div>
 
 <div class="w hero">
+<?php if ( isset( $_GET['enviado'] ) ) : ?>
+ <div class="card" style="margin-bottom:12px;padding:16px 20px">
+  <?php if ( $_GET['enviado'] === '1' ) : ?>
+   <div style="color:var(--gr);font-weight:600;font-size:14.5px">&#10003; Correo enviado desde info@aumbral.com</div>
+  <?php else : ?>
+   <div style="color:var(--r);font-weight:600;font-size:14.5px">No se pudo enviar. Revisa el destinatario y el texto.</div>
+  <?php endif; ?>
+ </div>
+<?php endif; ?>
 <?php
 	call_user_func( $d['render'], array(
 		'slug'  => $slug,
@@ -378,6 +387,38 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('<?php echo es
 }
 
 require_once __DIR__ . '/resumen.php';
+
+/**
+ * Envío de correos a clientes desde la propia app.
+ * El correo sale del servidor como info@aumbral.com, así que da igual quién pulse el botón:
+ * Julia y Eduardo escriben siempre con la misma identidad. Con el enlace de Gmail eso no se
+ * puede garantizar, porque abre la sesión del navegador de cada uno.
+ */
+add_action( 'admin_post_aumbral_enviar', function () {
+	if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Sin permiso' );
+	check_admin_referer( 'aumbral_enviar' );
+
+	$para   = sanitize_email( wp_unslash( $_POST['para'] ?? '' ) );
+	$asunto = sanitize_text_field( wp_unslash( $_POST['asunto'] ?? '' ) );
+	$cuerpo = sanitize_textarea_field( wp_unslash( $_POST['cuerpo'] ?? '' ) );
+	$vuelta = wp_get_referer() ?: aumbral_app_url();
+
+	if ( ! is_email( $para ) || $cuerpo === '' || $asunto === '' ) {
+		wp_safe_redirect( add_query_arg( 'enviado', '0', $vuelta ) );
+		exit;
+	}
+
+	$u = wp_get_current_user();
+	$ok = wp_mail( $para, $asunto, $cuerpo, array(
+		'From: A Umbral <info@aumbral.com>',
+		'Reply-To: A Umbral <info@aumbral.com>',
+		'Bcc: info@aumbral.com',                       // copia al buzón compartido
+		'X-Aumbral-Operador: ' . $u->user_email,       // quién lo mandó, sin que lo vea el cliente
+	) );
+
+	wp_safe_redirect( add_query_arg( 'enviado', $ok ? '1' : '0', $vuelta ) );
+	exit;
+} );
 
 /**
  * Remitente de los correos del sitio.

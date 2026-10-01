@@ -722,11 +722,18 @@ final class AUmbral_Planes {
    <div class="msg"><?php echo esc_html( $f['mensaje'] ); ?></div>
   </details>
   <details>
-   <summary>Borrador de respuesta</summary>
-   <div class="msg" id="b<?php echo (int) $f['submission_id']; ?>"><?php echo esc_html( $brd ); ?></div>
-   <div class="bts">
-    <button class="b" onclick="cp('b<?php echo (int) $f['submission_id']; ?>')">Copiar</button>
-   </div>
+   <summary>Responder desde info@aumbral.com</summary>
+   <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+    <?php wp_nonce_field( 'aumbral_enviar' ); ?>
+    <input type="hidden" name="action" value="aumbral_enviar">
+    <input type="hidden" name="para" value="<?php echo esc_attr( $f['email'] ); ?>">
+    <div class="nf"><input type="text" name="asunto" value="Tu plan de entrenamiento en A Umbral"></div>
+    <div class="nf"><textarea name="cuerpo" rows="12" id="b<?php echo (int) $f['submission_id']; ?>"><?php echo esc_textarea( $brd ); ?></textarea></div>
+    <div class="bts">
+     <button class="b p">Enviar a <?php echo esc_html( $f['nombre'] ?: 'el ciclista' ); ?></button>
+     <button type="button" class="b" onclick="cp('b<?php echo (int) $f['submission_id']; ?>')">Copiar</button>
+    </div>
+   </form>
   </details>
   <?php endif; ?>
 

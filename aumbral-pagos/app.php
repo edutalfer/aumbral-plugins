@@ -509,8 +509,15 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
 
   <?php if ( $msg ) : ?>
   <details>
-   <summary>Ver el mensaje que le mandarías</summary>
-   <div class="msg" id="m<?php echo (int) $x['sub_id']; ?>"><?php echo esc_html( $x['mensaje'] ); ?></div>
+   <summary>Escribirle desde info@aumbral.com</summary>
+   <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+    <?php wp_nonce_field( 'aumbral_enviar' ); ?>
+    <input type="hidden" name="action" value="aumbral_enviar">
+    <input type="hidden" name="para" value="<?php echo esc_attr( $x['email'] ); ?>">
+    <div class="nf"><input type="text" name="asunto" value="Tu suscripción en A Umbral"></div>
+    <div class="nf"><textarea name="cuerpo" rows="12" id="m<?php echo (int) $x['sub_id']; ?>"><?php echo esc_textarea( $x['mensaje'] . "\n\n" . $url ); ?></textarea></div>
+    <div class="bts"><button class="b p">Enviar a <?php echo esc_html( $x['cliente'] ); ?></button></div>
+   </form>
    <div class="lnk" id="u<?php echo (int) $x['sub_id']; ?>"><?php echo esc_html( $url ); ?></div>
   </details>
   <?php endif; ?>
