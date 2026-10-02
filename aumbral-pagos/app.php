@@ -107,6 +107,57 @@ final class AUP_Pagos_App {
 		);
 	}
 
+	/**
+	 * Altas y bajas del día anterior, para el resumen diario.
+	 * Absorbe los avisos «New customer order» y «Suscripción cancelada» que antes
+	 * llegaban sueltos a Gmail.
+	 */
+	public function movimientos() {
+		global $wpdb;
+		$ayer  = gmdate( 'Y-m-d', strtotime( current_time( 'Y-m-d' ) . ' -1 day' ) );
+		$items = array();
+
+		// Altas: pedidos nuevos pagados, sin contar renovaciones
+		$altas = $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.ID,
+				MAX(CASE WHEN m.meta_key='_order_total'        THEN m.meta_value END) AS total,
+				MAX(CASE WHEN m.meta_key='_billing_first_name' THEN m.meta_value END) AS nombre,
+				MAX(CASE WHEN m.meta_key='_billing_last_name'  THEN m.meta_value END) AS apellidos
+			 FROM {$wpdb->posts} p
+			 JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
+			 WHERE p.post_type = 'shop_order'
+			   AND p.post_status IN ('wc-completed','wc-processing')
+			   AND DATE(p.post_date) = %s
+			   AND p.ID NOT IN (SELECT post_id FROM {$wpdb->postmeta}
+			                    WHERE meta_key IN ('_subscription_renewal','_subscription_switch','_subscription_resubscribe'))
+			 GROUP BY p.ID", $ayer
+		), ARRAY_A );
+
+		foreach ( $altas as $a ) {
+			$items[] = array(
+				'texto'   => 'Alta nueva: ' . trim( $a['nombre'] . ' ' . $a['apellidos'] ),
+				'detalle' => $a['total'] . ' €',
+				'urgente' => false,
+			);
+		}
+
+		// Bajas pedidas ayer
+		foreach ( AUP_Pagos::i()->bajas() as $b ) {
+			if ( $b['baja'] !== $ayer ) continue;
+			$items[] = array(
+				'texto'   => 'Se dio de baja: ' . $b['cliente'],
+				'detalle' => $b['fin'] ? 'Mantiene acceso hasta el ' . wp_date( 'j M', strtotime( $b['fin'] ) ) . '.' : '',
+				'urgente' => false,
+			);
+		}
+
+		return $items ? array( array(
+			'titulo' => 'Ayer',
+			'url'    => aumbral_app_url( self::SLUG ),
+			'items'  => $items,
+		) ) : array();
+	}
+
 	/** Bloque del resumen diario: quien necesita un mensaje y a quien hay que quitar de TP. */
 	public function resumen( $bloques ) {
 		$items = array();
@@ -137,6 +188,8 @@ final class AUP_Pagos_App {
 				'urgente' => true,
 			);
 		}
+
+		foreach ( $this->movimientos() as $m ) $bloques[] = $m;
 
 		if ( $items ) {
 			$bloques[] = array(
