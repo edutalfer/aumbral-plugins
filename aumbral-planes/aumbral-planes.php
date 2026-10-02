@@ -758,9 +758,6 @@ final class AUmbral_Planes {
      <button class="b o" name="que" value="reabrir">Reabrir</button>
     <?php endif; ?>
    </form>
-   <?php if ( $f['user_id'] ) : ?>
-    <a class="b o" target="_blank" rel="noopener" href="<?php echo esc_url( admin_url( 'user-edit.php?user_id=' . (int) $f['user_id'] ) ); ?>">Ficha</a>
-   <?php endif; ?>
   </div>
 
   <details>
