@@ -108,6 +108,43 @@ final class AUP_Pagos_App {
 	}
 
 	/**
+	 * Pulso del negocio: suscripciones activas y movimiento del mes en curso.
+	 * Altas = pedidos nuevos pagados, sin contar renovaciones.
+	 * Bajas = cancelaciones pedidas este mes, se hayan hecho efectivas o no.
+	 */
+	public function pulso() {
+		global $wpdb;
+		$mes = current_time( 'Y-m' ) . '-01';
+
+		$activas = (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type='shop_subscription' AND post_status='wc-active'" );
+
+		$salida = (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type='shop_subscription' AND post_status='wc-pending-cancel'" );
+
+		$altas = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
+			 WHERE p.post_type='shop_order' AND p.post_status IN ('wc-completed','wc-processing')
+			   AND p.post_date >= %s
+			   AND p.ID NOT IN (SELECT post_id FROM {$wpdb->postmeta}
+			                    WHERE meta_key IN ('_subscription_renewal','_subscription_switch','_subscription_resubscribe'))",
+			$mes . ' 00:00:00' ) );
+
+		$bajas = 0;
+		foreach ( AUP_Pagos::i()->bajas() as $b ) {
+			if ( $b['baja'] && $b['baja'] >= $mes ) $bajas++;
+		}
+
+		return array(
+			'activas' => $activas,
+			'salida'  => $salida,
+			'altas'   => $altas,
+			'bajas'   => $bajas,
+			'neto'    => $altas - $bajas,
+		);
+	}
+
+	/**
 	 * Altas y bajas del día anterior, para el resumen diario.
 	 * Absorbe los avisos «New customer order» y «Suscripción cancelada» que antes
 	 * llegaban sueltos a Gmail.
@@ -483,6 +520,15 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
    <div class="lbl" style="margin-top:3px">Ninguna renovación pendiente de gestión</div>
   </div></div>
  <?php endif; ?>
+
+ <?php $pulso = $this->pulso(); ?>
+ <div class="meta" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
+  <span class="pi"><b><?php echo (int) $pulso['activas']; ?></b> activas</span>
+  <?php if ( $pulso['salida'] ) : ?><span class="pi"><b><?php echo (int) $pulso['salida']; ?></b> de salida</span><?php endif; ?>
+  <span class="pi ok">+<?php echo (int) $pulso['altas']; ?> altas</span>
+  <span class="pi<?php echo $pulso['bajas'] ? ' al' : ''; ?>">&minus;<?php echo (int) $pulso['bajas']; ?> bajas</span>
+  <span class="pi"><?php echo esc_html( ucfirst( wp_date( 'F' ) ) ); ?>: <b><?php echo $pulso['neto'] > 0 ? '+' : ''; ?><?php echo (int) $pulso['neto']; ?></b></span>
+ </div>
  </div>
 
  <div class="chips">
