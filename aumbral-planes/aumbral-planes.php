@@ -562,7 +562,16 @@ final class AUmbral_Planes {
 		$hoy  = current_time( 'Y-m-d' );
 		$v    = sanitize_key( $ctx['query']['v'] ?? 'pendientes' );
 
-		if ( $v === 'vencen' )      $filas = $this->filas( "estado='inicio' AND fecha_paso <= %s", array( gmdate( 'Y-m-d', strtotime( $hoy . ' +7 days' ) ) ), 'fecha_paso ASC' );
+		$q = trim( sanitize_text_field( wp_unslash( $ctx['query']['q'] ?? '' ) ) );
+
+		if ( $q !== '' ) {
+			global $wpdb;
+			$like  = '%' . $wpdb->esc_like( $q ) . '%';
+			$filas = $this->filas(
+				"(nombre LIKE %s OR apellidos LIKE %s OR email LIKE %s OR CONCAT(nombre,' ',apellidos) LIKE %s)",
+				array( $like, $like, $like, $like ), 'fecha DESC', 60 );
+		}
+		elseif ( $v === 'vencen' )  $filas = $this->filas( "estado='inicio' AND fecha_paso <= %s", array( gmdate( 'Y-m-d', strtotime( $hoy . ' +7 days' ) ) ), 'fecha_paso ASC' );
 		elseif ( $v === 'inicio' )  $filas = $this->filas( "estado='inicio'", array(), 'fecha_paso ASC' );
 		elseif ( $v === 'hechos' )  $filas = $this->filas( "estado='hecho'", array(), 'fecha DESC', 40 );
 		elseif ( $v === 'todos' )   $filas = $this->filas( '1=1', array(), 'fecha DESC', 40 );
@@ -615,6 +624,15 @@ final class AUmbral_Planes {
  ?>
  </div>
 
+ <form method="get" action="<?php echo esc_url( $base ); ?>" style="margin-top:14px">
+  <input type="hidden" name="v" value="<?php echo esc_attr( $v ); ?>">
+  <div class="nf">
+   <input type="search" name="q" placeholder="Buscar por nombre o correo…" value="<?php echo esc_attr( $q ); ?>">
+   <button class="b<?php echo $q ? '' : ' p'; ?>">Buscar</button>
+   <?php if ( $q ) : ?><a class="b o" href="<?php echo esc_url( add_query_arg( 'v', $v, $base ) ); ?>">Quitar</a><?php endif; ?>
+  </div>
+ </form>
+
  <?php
 	$tit = array(
 		'pendientes' => array( 'Pendientes', 'por cargar' ),
@@ -625,10 +643,15 @@ final class AUmbral_Planes {
 	);
 	$t = isset( $tit[ $v ] ) ? $tit[ $v ] : $tit['pendientes'];
  ?>
- <h2><?php echo esc_html( $t[0] ); ?> <span><?php echo count( $filas ) . ( in_array( $v, array( 'hechos', 'todos' ), true ) ? ' últimas' : '' ) . ' · ' . esc_html( $t[1] ); ?></span></h2>
+ <?php if ( $q !== '' ) : ?>
+  <h2>Resultados <span><?php echo count( $filas ) . ' · «' . esc_html( $q ) . '» en todo el histórico'; ?></span></h2>
+ <?php else : ?>
+  <h2><?php echo esc_html( $t[0] ); ?> <span><?php echo count( $filas ) . ( in_array( $v, array( 'hechos', 'todos' ), true ) ? ' últimas' : '' ) . ' · ' . esc_html( $t[1] ); ?></span></h2>
+ <?php endif; ?>
 
  <?php if ( ! $filas ) : ?>
-  <div class="zero"><span class="em">&#127937;</span><b>Nada por aquí</b><p>No hay solicitudes en esta vista.</p></div>
+  <div class="zero"><span class="em">&#127937;</span><b>Nada por aquí</b>
+   <p><?php echo $q !== '' ? 'Ninguna solicitud coincide con esa búsqueda.' : 'No hay solicitudes en esta vista.'; ?></p></div>
  <?php endif; ?>
 
  <?php foreach ( $filas as $f ) :
