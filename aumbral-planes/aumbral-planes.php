@@ -297,7 +297,7 @@ final class AUmbral_Planes {
 			if ( count( $abiertos ) >= 2 ) {
 				$av[ $mail ] = count( $fs ) >= 3
 					? 'Ha enviado ' . count( $fs ) . ' formularios: puede que no vea su plan cargado. Conviene escribirle.'
-					: 'Envío duplicado o corrección: manda el último.';
+					: 'Mandó dos formularios seguidos. Normalmente es una corrección.';
 			}
 		}
 		return $av;
@@ -575,7 +575,7 @@ final class AUmbral_Planes {
 		elseif ( $v === 'inicio' )  $filas = $this->filas( "estado='inicio'", array(), 'fecha_paso ASC' );
 		elseif ( $v === 'hechos' )  $filas = $this->filas( "estado='hecho'", array(), 'fecha DESC', 40 );
 		elseif ( $v === 'todos' )   $filas = $this->filas( '1=1', array(), 'fecha DESC', 40 );
-		else                        $filas = $this->filas( "estado='pendiente'", array(), 'fecha ASC' );
+		else                        $filas = $this->filas( "estado='pendiente'", array(), 'fecha DESC' );
 
 		$todas  = $this->filas( "fecha >= %s", array( gmdate( 'Y-m-d', strtotime( '-30 days' ) ) ) );
 		$avisos = $this->avisos( $todas );
@@ -673,7 +673,17 @@ final class AUmbral_Planes {
 	$en_curso = null;
 	foreach ( $rel as $x ) if ( $x['estado'] === 'inicio' ) $en_curso = $x;
 	$otra_pend = null;
-	foreach ( $rel as $x ) if ( $x['estado'] === 'pendiente' ) $otra_pend = $x;
+	foreach ( $rel as $x ) {
+		if ( $x['estado'] !== 'pendiente' ) continue;
+		if ( ! $otra_pend || $x['fecha'] > $otra_pend['fecha'] ) $otra_pend = $x;
+	}
+	// ¿La otra llegó antes o después que esta? Con dos envíos del mismo día hace falta la hora.
+	$otra_despues = $otra_pend && $otra_pend['fecha'] > $f['fecha'];
+	$mismo_dia    = $otra_pend && substr( $otra_pend['fecha'], 0, 10 ) === substr( $f['fecha'], 0, 10 );
+	$cuando_otra  = $otra_pend
+		? ( $mismo_dia ? 'hoy a las ' . wp_date( 'H:i', strtotime( $otra_pend['fecha'] ) )
+		               : 'del ' . wp_date( 'j M', strtotime( $otra_pend['fecha'] ) ) . ' a las ' . wp_date( 'H:i', strtotime( $otra_pend['fecha'] ) ) )
+		: '';
 
 	$brd = $this->borrador( $f );
 	$avp = class_exists( 'AUP_Pagos' ) && in_array( $f['estado'], array( 'pendiente', 'inicio' ), true )
@@ -684,7 +694,7 @@ final class AUmbral_Planes {
  <article class="caso<?php echo $f['estado'] === 'hecho' || $f['estado'] === 'descartado' ? ' q' : ''; ?>">
   <div class="f1">
    <span class="tag <?php echo esc_attr( $e[1] ); ?>"><?php echo esc_html( $e[0] ); ?></span>
-   <span class="hace"><?php echo $dias === 0 ? 'hoy' : $dias . ' días'; ?></span>
+   <span class="hace"><?php echo $dias === 0 ? 'hoy ' . esc_html( wp_date( 'H:i', strtotime( $f['fecha'] ) ) ) : $dias . ' días'; ?></span>
   </div>
   <div class="nom"><?php echo esc_html( $nom ?: '(sin nombre)' ); ?></div>
   <div class="sub"><?php echo esc_html( $f['email'] ); ?></div>
@@ -717,10 +727,19 @@ final class AUmbral_Planes {
   <?php endif; ?>
 
   <?php if ( $f['estado'] === 'pendiente' && $otra_pend ) : ?>
-   <div class="acc" style="background:var(--ams);color:var(--am)">
-    Tiene otra solicitud sin cargar del <?php echo esc_html( wp_date( 'j M', strtotime( $otra_pend['fecha'] ) ) ); ?>
-    (<?php echo esc_html( str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $otra_pend['slug'] ) ); ?>). Manda la más reciente.
-   </div>
+   <?php if ( $otra_despues ) : ?>
+    <div class="acc" style="background:var(--ams);color:var(--am)">
+     <b>Esta no es la última.</b> Mandó otra <?php echo esc_html( $cuando_otra ); ?>
+     (<?php echo esc_html( str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $otra_pend['slug'] ) ); ?>),
+     que es la que vale. Esta puedes descartarla.
+    </div>
+   <?php else : ?>
+    <div class="acc" style="background:var(--grs);color:var(--gr)">
+     <b>Esta es la última.</b> Tiene otra anterior, <?php echo esc_html( $cuando_otra ); ?>
+     (<?php echo esc_html( str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $otra_pend['slug'] ) ); ?>),
+     que puedes descartar.
+    </div>
+   <?php endif; ?>
   <?php endif; ?>
 
   <?php if ( $f['estado'] === 'inicio' && $f['plan_destino'] ) : ?>
