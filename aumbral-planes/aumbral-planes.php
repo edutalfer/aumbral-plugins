@@ -677,7 +677,7 @@ final class AUmbral_Planes {
 
 	$brd = $this->borrador( $f );
 	$avp = class_exists( 'AUP_Pagos' ) && in_array( $f['estado'], array( 'pendiente', 'inicio' ), true )
-		? AUP_Pagos::i()->aviso_cliente( $f['email'] ) : '';
+		? AUP_Pagos::i()->aviso_cliente( $f['email'], (int) $f['user_id'] ) : '';
 	$nuevo = ! $f['lleva_inicio'] && $f['estado'] === 'pendiente'
 		&& preg_match( '/\\b(soy|somos|es mi)\\s+(nuev[oa]|primer)|nuev[oa]\\s+(en|por aqu)|primera vez|acabo de (empezar|entrar|suscribirme)|me acabo de suscribir/iu', (string) $f['mensaje'] );
  ?>

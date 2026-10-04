@@ -648,13 +648,11 @@ final class AUP_Pagos {
 		static $cache = null;
 		if ( null !== $cache ) return $cache;
 
-		$guardado = get_transient( 'aup_clientes' );
-		if ( is_array( $guardado ) ) return $cache = $guardado;
-
 		global $wpdb;
 		$filas = $wpdb->get_results(
 			"SELECT p.ID, p.post_status,
 				MAX(CASE WHEN m.meta_key='_billing_email' THEN m.meta_value END) AS email,
+				MAX(CASE WHEN m.meta_key='_customer_user' THEN m.meta_value END) AS uid,
 				MAX(CASE WHEN m.meta_key='_schedule_end'  THEN m.meta_value END) AS f_end
 			 FROM {$wpdb->posts} p
 			 JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
@@ -665,17 +663,26 @@ final class AUP_Pagos {
 		$out  = array();
 		foreach ( $filas as $f ) {
 			$mail = strtolower( trim( (string) $f['email'] ) );
-			if ( ! $mail ) continue;
-			$pe = $peso[ $f['post_status'] ] ?? 0;
-			// Si alguien tiene varias suscripciones, manda la de mejor estado.
-			if ( isset( $out[ $mail ] ) && $out[ $mail ]['peso'] >= $pe ) continue;
-			$out[ $mail ] = array(
+			$uid  = (int) $f['uid'];
+			$pe   = $peso[ $f['post_status'] ] ?? 0;
+
+			$dato = array(
 				'estado' => str_replace( 'wc-', '', $f['post_status'] ),
 				'fin'    => $f['f_end'] ? get_date_from_gmt( $f['f_end'], 'Y-m-d' ) : '',
 				'sub_id' => (int) $f['ID'],
 				'peso'   => $pe,
 				'fallo'  => '',
 			);
+
+			// Dos claves para la misma persona: su correo y su usuario de WordPress.
+			// Quien se da de alta otra vez con otro correo de facturación seguía apareciendo
+			// como cancelado; por usuario sí se le encuentra.
+			foreach ( array( $mail, $uid ? 'uid:' . $uid : '' ) as $k ) {
+				if ( $k === '' ) continue;
+				// Si tiene varias suscripciones, manda la de mejor estado.
+				if ( isset( $out[ $k ] ) && $out[ $k ]['peso'] >= $pe ) continue;
+				$out[ $k ] = $dato;
+			}
 		}
 
 		// Fallos de pago abiertos, del propio motor de casos.
@@ -687,18 +694,23 @@ final class AUP_Pagos {
 			}
 		}
 
-		set_transient( 'aup_clientes', $out, 5 * MINUTE_IN_SECONDS );
 		return $cache = $out;
 	}
 
 	/** Resumen en una linea del estado de un cliente, o cadena vacia si no hay nada que decir. */
-	public function aviso_cliente( $email ) {
+	public function aviso_cliente( $email, $user_id = 0 ) {
 		$email = strtolower( trim( (string) $email ) );
-		if ( ! $email ) return '';
-		$c = $this->clientes();
-		if ( ! isset( $c[ $email ] ) ) return 'No aparece ninguna suscripción con este correo.';
+		$c     = $this->clientes();
 
-		$x = $c[ $email ];
+		// Se mira por usuario y por correo, y manda el mejor estado de los dos.
+		$cands = array();
+		if ( $user_id && isset( $c[ 'uid:' . (int) $user_id ] ) ) $cands[] = $c[ 'uid:' . (int) $user_id ];
+		if ( $email && isset( $c[ $email ] ) )                    $cands[] = $c[ $email ];
+		if ( ! $cands ) return 'No aparece ninguna suscripción con este correo.';
+
+		usort( $cands, function ( $a, $b ) { return $b['peso'] <=> $a['peso']; } );
+		$x = $cands[0];
+		if ( $x['estado'] === 'active' ) return '';
 		$f = $x['fin'] ? wp_date( 'j M', strtotime( $x['fin'] ) ) : '';
 
 		if ( $x['estado'] === 'cancelled' )      return 'Su suscripción está cancelada' . ( $f ? ' (acceso hasta el ' . $f . ')' : '' ) . '.';
@@ -1011,7 +1023,6 @@ final class AUP_Pagos {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Sin permiso' );
 		check_admin_referer( 'aup_baja_hecha' );
 		$id = absint( $_POST['sub_id'] ?? 0 );
-		delete_transient( 'aup_clientes' );
 		if ( $id && get_post_type( $id ) === 'shop_subscription' ) {
 			if ( ! empty( $_POST['deshacer'] ) ) {
 				delete_post_meta( $id, self::META_BAJA );
