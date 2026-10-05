@@ -453,13 +453,15 @@ final class AUmbral_Planes {
 		$hoy   = current_time( 'Y-m-d' );
 		$items = array();
 
-		foreach ( $this->filas( "estado='inicio' AND fecha_paso <= %s", array( $hoy ), 'fecha_paso ASC' ) as $f ) {
+		foreach ( $this->filas( "estado='inicio' AND fecha_paso <= %s", array( $this->limite_aviso() ), 'fecha_paso ASC' ) as $f ) {
 			$destino = $f['plan_destino'] ? str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $f['plan_destino'] ) : '';
 			$items[] = array(
 				'texto'   => trim( $f['nombre'] . ' ' . $f['apellidos'] ) . ' pasa al plan real',
 				'detalle' => ( $destino ? 'Plan: ' . $destino . '. ' : '' )
 					. ( $f['modalidad'] ? $f['modalidad'] . '. ' : '' )
-					. ( $f['fecha_paso'] === $hoy ? 'Le toca hoy.' : 'Le tocaba el ' . wp_date( 'j M', strtotime( $f['fecha_paso'] ) ) . '.' ),
+					. ( $f['fecha_paso'] === $hoy ? 'Le toca hoy.'
+						: ( $f['fecha_paso'] > $hoy ? 'Le toca el ' . wp_date( 'l j', strtotime( $f['fecha_paso'] ) ) . ': déjalo cargado antes.'
+						                            : 'Le tocaba el ' . wp_date( 'j M', strtotime( $f['fecha_paso'] ) ) . '.' ) ),
 				'urgente' => true,
 			);
 		}

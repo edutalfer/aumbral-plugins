@@ -996,7 +996,18 @@ final class AUP_Pagos {
 
 		$hoy  = current_time( 'Y-m-d' );
 		$out  = array();
+		// Quien cancela una suscripción pero tiene otra activa NO es una baja:
+		// son intentos de pago duplicados al darse de alta, cambios de plan o re-altas.
+		// Sin este filtro aparecían como «por quitar de TrainingPeaks» clientes que pagan.
+		$cli = $this->clientes();
+
 		foreach ( $filas as $f ) {
+			$m_ = strtolower( (string) $f['email'] );
+			$u_ = (int) $f['user_id'];
+			if ( ( isset( $cli[ $m_ ] ) && $cli[ $m_ ]['estado'] === 'active' )
+			  || ( $u_ && isset( $cli[ 'uid:' . $u_ ] ) && $cli[ 'uid:' . $u_ ]['estado'] === 'active' ) ) {
+				continue;
+			}
 			$fin   = $f['f_end']    ? get_date_from_gmt( $f['f_end'], 'Y-m-d' )       : '';
 			$baja  = $f['f_cancel'] ? get_date_from_gmt( $f['f_cancel'], 'Y-m-d' )    : '';
 			$out[] = array(
