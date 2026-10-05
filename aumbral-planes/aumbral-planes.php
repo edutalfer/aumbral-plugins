@@ -15,6 +15,13 @@ final class AUmbral_Planes {
 	const CAP   = 'manage_woocommerce';
 	const DB    = 2;
 
+	/**
+	 * Días de antelación con que una ficha en semanas de inicio vuelve a «Pendientes».
+	 * El paso al plan real cae siempre en lunes, así que 3 días la saca el viernes anterior
+	 * y da margen para dejarlo cargado antes del fin de semana.
+	 */
+	const AVISO_DIAS = 3;
+
 	private static $inst;
 	public static function i() { return self::$inst ?: ( self::$inst = new self() ); }
 
@@ -272,6 +279,11 @@ final class AUmbral_Planes {
 		return $wpdb->get_results( $sql, ARRAY_A );
 	}
 
+	/** Hasta qué fecha de paso se considera «ya hay que cargarlo». */
+	public function limite_aviso() {
+		return gmdate( 'Y-m-d', strtotime( current_time( 'Y-m-d' ) . ' +' . self::AVISO_DIAS . ' days' ) );
+	}
+
 	public function contadores() {
 		global $wpdb;
 		$t   = self::tabla();
@@ -281,6 +293,7 @@ final class AUmbral_Planes {
 			'inicio'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE estado='inicio'" ),
 			'vencen'    => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE estado='inicio' AND fecha_paso <= %s", $hoy ) ),
 			'proximos'  => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE estado='inicio' AND fecha_paso > %s AND fecha_paso <= %s", $hoy, gmdate( 'Y-m-d', strtotime( $hoy . ' +7 days' ) ) ) ),
+			'avisados'  => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE estado='inicio' AND fecha_paso <= %s", $this->limite_aviso() ) ),
 		);
 	}
 
@@ -432,7 +445,7 @@ final class AUmbral_Planes {
 
 	public function badge() {
 		$c = $this->contadores();
-		return $c['pendiente'] + $c['vencen'];
+		return $c['pendiente'] + $c['avisados'];
 	}
 
 	/** Bloque del resumen diario: lo que hay que cargar hoy en TrainingPeaks. */
@@ -575,7 +588,10 @@ final class AUmbral_Planes {
 		elseif ( $v === 'inicio' )  $filas = $this->filas( "estado='inicio'", array(), 'fecha_paso ASC' );
 		elseif ( $v === 'hechos' )  $filas = $this->filas( "estado='hecho'", array(), 'fecha DESC', 40 );
 		elseif ( $v === 'todos' )   $filas = $this->filas( '1=1', array(), 'fecha DESC', 40 );
-		else                        $filas = $this->filas( "estado='pendiente'", array(), 'fecha DESC' );
+		else                        $filas = $this->filas(
+			"estado='pendiente' OR (estado='inicio' AND fecha_paso <= %s)",
+			array( $this->limite_aviso() ),
+			"FIELD(estado,'inicio','pendiente'), fecha_paso ASC, fecha DESC" );
 
 		$todas  = $this->filas( "fecha >= %s", array( gmdate( 'Y-m-d', strtotime( '-30 days' ) ) ) );
 		$avisos = $this->avisos( $todas );
@@ -587,12 +603,12 @@ final class AUmbral_Planes {
 		}
 		?>
  <div class="card">
- <?php if ( $c['pendiente'] || $c['vencen'] ) : ?>
+ <?php if ( $c['pendiente'] || $c['avisados'] ) : ?>
   <div class="lbl">Por cargar en TrainingPeaks</div>
-  <div class="big"><?php echo (int) ( $c['pendiente'] + $c['vencen'] ); ?></div>
+  <div class="big"><?php echo (int) ( $c['pendiente'] + $c['avisados'] ); ?></div>
   <div class="leg" style="margin-top:14px">
    <div><span class="dot" style="background:var(--r)"></span><b><?php echo (int) $c['pendiente']; ?></b> solicitudes nuevas</div>
-   <div><span class="dot" style="background:var(--am)"></span><b><?php echo (int) $c['vencen']; ?></b> pasan al plan real</div>
+   <div><span class="dot" style="background:var(--am)"></span><b><?php echo (int) $c['avisados']; ?></b> pasan al plan real</div>
   </div>
   <?php if ( $c['proximos'] ) : ?>
    <div class="lbl" style="margin-top:12px"><?php echo (int) $c['proximos']; ?> más vencen esta semana</div>
@@ -608,7 +624,7 @@ final class AUmbral_Planes {
  <div class="chips">
  <?php
 	$chips = array(
-		'pendientes' => array( 'Pendientes', $c['pendiente'] ),
+		'pendientes' => array( 'Pendientes', $c['pendiente'] + $c['avisados'] ),
 		'vencen'     => array( 'Vencen', $c['vencen'] ),
 		'inicio'     => array( 'En inicio', $c['inicio'] ),
 		'hechos'     => array( 'Hechos', 0 ),
@@ -658,9 +674,10 @@ final class AUmbral_Planes {
 	$nom   = trim( $f['nombre'] . ' ' . $f['apellidos'] );
 	$dias  = (int) floor( ( current_time( 'timestamp' ) - strtotime( $f['fecha'] ) ) / DAY_IN_SECONDS );
 	$vence = $f['fecha_paso'] && $f['fecha_paso'] <= $hoy;
+	$avisa = $f['estado'] === 'inicio' && $f['fecha_paso'] && $f['fecha_paso'] <= $this->limite_aviso();
 	$et    = array(
 		'pendiente'  => array( 'Por cargar', '' ),
-		'inicio'     => array( $vence ? 'Toca pasar al plan' : 'En inicio', $vence ? 'am' : 'az' ),
+		'inicio'     => array( $vence ? 'Toca pasar al plan' : ( $avisa ? 'Viene de las 2 semanas' : 'En inicio' ), $vence ? 'am' : ( $avisa ? 'am' : 'az' ) ),
 		'hecho'      => array( 'Hecho', 'gr' ),
 		'descartado' => array( 'Descartada', 'gy' ),
 	);
@@ -708,6 +725,14 @@ final class AUmbral_Planes {
     <span class="pi ok">plan directo</span>
    <?php endif; ?>
   </div>
+
+  <?php if ( $avisa && ! $vence ) : ?>
+   <div class="acc" style="background:var(--ams);color:var(--am)">
+    <b>Termina las 2 semanas de inicio.</b> El <?php echo esc_html( wp_date( 'l j', strtotime( $f['fecha_paso'] ) ) ); ?>
+    le toca el plan real<?php echo $f['plan_destino'] ? ': ' . esc_html( str_replace( array( 'entrena-para-', 'entrenamiento-' ), '', $f['plan_destino'] ) ) : ''; ?>.
+    Déjalo cargado antes.
+   </div>
+  <?php endif; ?>
 
   <?php if ( $f['estado'] === 'inicio' && $f['fecha_paso'] ) : ?>
    <div class="acc">Inicio el <?php echo esc_html( wp_date( 'j M', strtotime( $f['fecha_inicio'] ) ) ); ?>.
