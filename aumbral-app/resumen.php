@@ -13,6 +13,13 @@ final class AUmbral_Resumen {
 	const HORA = '07:30:00';
 	const OPT  = 'aumbral_resumen_activo';
 
+	/**
+	 * Quién recibe el resumen completo (planes, pagos, bajas, altas y sus tareas).
+	 * Los demás usuarios solo reciben el bloque de sus propias tareas.
+	 * Julia (368) lleva toda la operativa.
+	 */
+	const COMPLETO = array( 368 );
+
 	private static $inst;
 	public static function i() { return self::$inst ?: ( self::$inst = new self() ); }
 
@@ -74,6 +81,9 @@ final class AUmbral_Resumen {
 		$enviados = 0;
 		foreach ( $this->destinatarios() as $uid => $email ) {
 			$bloques = $this->bloques( $uid );
+			if ( ! in_array( (int) $uid, self::COMPLETO, true ) ) {
+				$bloques = array_values( array_filter( $bloques, function ( $x ) { return $x['titulo'] === 'Tareas'; } ) );
+			}
 			if ( ! $bloques ) continue; // día sin nada que hacer: no se molesta
 
 			$n = 0;

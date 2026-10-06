@@ -586,7 +586,6 @@ final class AUmbral_Planes {
 				"(nombre LIKE %s OR apellidos LIKE %s OR email LIKE %s OR CONCAT(nombre,' ',apellidos) LIKE %s)",
 				array( $like, $like, $like, $like ), 'fecha DESC', 60 );
 		}
-		elseif ( $v === 'vencen' )  $filas = $this->filas( "estado='inicio' AND fecha_paso <= %s", array( gmdate( 'Y-m-d', strtotime( $hoy . ' +7 days' ) ) ), 'fecha_paso ASC' );
 		elseif ( $v === 'inicio' )  $filas = $this->filas( "estado='inicio'", array(), 'fecha_paso ASC' );
 		elseif ( $v === 'hechos' )  $filas = $this->filas( "estado='hecho'", array(), 'fecha DESC', 40 );
 		elseif ( $v === 'todos' )   $filas = $this->filas( '1=1', array(), 'fecha DESC', 40 );
@@ -627,7 +626,6 @@ final class AUmbral_Planes {
  <?php
 	$chips = array(
 		'pendientes' => array( 'Pendientes', $c['pendiente'] + $c['avisados'] ),
-		'vencen'     => array( 'Vencen', $c['vencen'] ),
 		'inicio'     => array( 'En inicio', $c['inicio'] ),
 		'hechos'     => array( 'Hechos', 0 ),
 		'todos'      => array( 'Todo', 0 ),
@@ -654,7 +652,6 @@ final class AUmbral_Planes {
  <?php
 	$tit = array(
 		'pendientes' => array( 'Pendientes', 'por cargar' ),
-		'vencen'     => array( 'Pasan al plan real', 'terminan las 2 semanas' ),
 		'inicio'     => array( 'En semanas de inicio', 'cargadas, sin cerrar' ),
 		'hechos'     => array( 'Cerradas', 'nada que hacer' ),
 		'todos'      => array( 'Todas', 'sin filtrar' ),
