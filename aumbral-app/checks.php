@@ -28,13 +28,13 @@ set_error_handler( function ( $no, $str, $file, $line ) use ( &$capturados ) {
 wp_set_current_user( 1 );
 
 echo "\n\e[1mPLUGINS\e[0m\n";
-foreach ( array( 'aumbral-app', 'aumbral-pagos', 'aumbral-planes', 'aumbral-tareas' ) as $p ) {
+foreach ( array( 'aumbral-app', 'aumbral-pagos', 'aumbral-planes', 'aumbral-tareas', 'aumbral-ev' ) as $p ) {
 	is_plugin_active( $p . '/' . $p . '.php' ) ? ok( "$p activo" ) : mal( "$p NO activo" );
 }
 
 echo "\n\e[1mMÓDULOS Y PANTALLAS\e[0m\n";
 $mods = AUmbral_App::i()->modulos();
-$esperados = array( 'pagos', 'planes', 'tareas' );
+$esperados = array( 'pagos', 'planes', 'tareas', 'datos' );
 foreach ( $esperados as $e ) {
 	isset( $mods[ $e ] ) ? ok( "módulo $e registrado" ) : mal( "módulo $e NO registrado" );
 }
@@ -44,6 +44,7 @@ $vistas = array(
 	'pagos'  => array( 'abiertos', 'contactar', 'esperar', 'alta', 'insistir', 'archivo', 'gestionados', 'todos', 'bclb', 'bajas', 'bajas_prog', 'bajas_hoy', 'bajas_hechas' ),
 	'planes' => array( 'pendientes', 'inicio', 'hechos', 'todos' ),
 	'tareas' => array( 'mias', 'abiertas', 'eduardo', 'julia', 'horizonte', 'hechas' ),
+	'datos'  => array( 'ahora', 'paginas', 'salud' ),
 );
 foreach ( $vistas as $m => $vs ) {
 	if ( ! isset( $mods[ $m ] ) ) continue;

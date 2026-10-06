@@ -328,7 +328,7 @@ body.esc .nav{max-width:560px}
  <div class="hi">
   <div>
    <h1>Hola, <?php echo esc_html( $nombre ); ?></h1>
-   <div class="dia"><?php echo esc_html( ucfirst( wp_date( 'l j \d\e F' ) ) ); ?></div>
+   <div class="dia"><?php echo esc_html( ucfirst( wp_date( 'l j \d\e F', null, new DateTimeZone( 'Europe/Madrid' ) ) ) ); ?></div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
    <a class="ui" href="<?php echo esc_url( $cambio ); ?>"><?php echo $ui === 'escritorio' ? 'Vista móvil' : 'Vista escritorio'; ?></a>
@@ -354,7 +354,7 @@ body.esc .nav{max-width:560px}
 		'query' => $_GET,
 	) );
 ?>
- <div class="pie">Actualizado a las <?php echo esc_html( wp_date( 'H:i' ) ); ?> · <a href="<?php echo esc_url( self::url( $slug, $_GET ) ); ?>">recargar</a></div>
+ <div class="pie">Actualizado a las <?php echo esc_html( wp_date( 'H:i', null, new DateTimeZone( 'Europe/Madrid' ) ) ); ?> · <a href="<?php echo esc_url( self::url( $slug, $_GET ) ); ?>">recargar</a></div>
 </div>
 
 <nav><div class="nav">
