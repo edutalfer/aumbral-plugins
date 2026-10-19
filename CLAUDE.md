@@ -53,7 +53,7 @@ con `class_exists()`.
 | `aumbral-planes` | Solicitudes de plan desde formularios Elementor, semanas de inicio, borradores de respuesta, buscador. Tabla `wp_aumbral_planes` |
 | `aumbral-tareas` | Tablero compartido sobre `wp_aumbral_tasks` (misma tabla que `/tareas/` del tema) |
 
-### Otros plugins propios en producción (de otros chats, **aún sin versionar** — ver §8)
+### Otros plugins propios en producción (de otros chats, cada uno en su repo — ver §8)
 
 | Plugin | Qué hace (según su cabecera) |
 |---|---|
@@ -158,7 +158,11 @@ con `class_exists()`.
   terceros fallando en bucle (`fetch_patterns`, `cartflows_update_knowledge_base_data`).
 - Los 8 plugins del Lab (calculadoras) sin versionar.
 
-## 8. Estado del repo a 19/10/2026
+## 8. Repos de los otros plugins (19/10/2026)
 
-- Los 7 plugins de la segunda tabla de §3 no están en ningún repo.
-- `~/bin/plugins-commit` solo sincroniza `aumbral-app aumbral-pagos aumbral-planes aumbral-tareas`.
+- Cada plugin de la segunda tabla de §3 tiene su propio repo privado `edutalfer/aumbral-<nombre>`
+  (`aumbral-ev` ya lo tenía). Se desarrollan en el Mac (`~/dev/aumbral/aumbral-*`) y se suben
+  a producción con la skill `/desplegar`: sentido **Git → producción**, al revés que este repo.
+- Por eso `plugins-commit` sigue sincronizando solo `aumbral-app aumbral-pagos aumbral-planes
+  aumbral-tareas`. No los añadas aquí: tendríamos dos historiales del mismo código.
+- Si hace falta tocar uno en el servidor, hazlo en su repo y despliega; nada de editar a mano.
