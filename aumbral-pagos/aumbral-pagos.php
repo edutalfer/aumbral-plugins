@@ -2,7 +2,7 @@
 /**
  * Plugin Name: A Umbral · Revisión de pagos
  * Description: Detección, clasificación y seguimiento de fallos de renovación (WooCommerce Subscriptions + Stripe). Panel de triaje, alerta inmediata cuando hace falta contactar y resumen semanal.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: A Umbral
  * Requires Plugins: woocommerce, woocommerce-subscriptions
  */
@@ -983,7 +983,9 @@ final class AUP_Pagos {
 				MAX(CASE WHEN m.meta_key='_billing_last_name'   THEN m.meta_value END) AS apellidos,
 				MAX(CASE WHEN m.meta_key='_billing_email'       THEN m.meta_value END) AS email,
 				MAX(CASE WHEN m.meta_key='_customer_user'       THEN m.meta_value END) AS user_id,
-				MAX(CASE WHEN m.meta_key=%s                     THEN m.meta_value END) AS tp_baja
+				MAX(CASE WHEN m.meta_key=%s                     THEN m.meta_value END) AS tp_baja,
+				MAX(CASE WHEN m.meta_key='_aumbral_baja_motivo' THEN m.meta_value END) AS motivo,
+				MAX(CASE WHEN m.meta_key='_aumbral_baja_correo' THEN m.meta_value END) AS correo_baja
 			 FROM {$wpdb->posts} p
 			 JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
 			 WHERE p.post_type = 'shop_subscription'
@@ -1023,6 +1025,10 @@ final class AUP_Pagos {
 				'activa'    => $f['post_status'] === 'wc-pending-cancel',
 				'hecho'     => ! empty( $f['tp_baja'] ),
 				'hecho_el'  => $f['tp_baja'] ? (int) $f['tp_baja'] : 0,
+				// Del plugin aumbral-bajas: motivo que dio al cancelar y si recibió el correo de gracias.
+				'motivo_k'  => (string) $f['motivo'],
+				'motivo'    => ( $f['motivo'] && function_exists( 'aumbral_bajas_motivo_etiqueta' ) ) ? aumbral_bajas_motivo_etiqueta( $f['motivo'] ) : '',
+				'correo'    => (int) $f['correo_baja'],
 				'url_admin' => admin_url( 'post.php?post=' . (int) $f['ID'] . '&action=edit' ),
 			);
 		}

@@ -183,7 +183,7 @@ final class AUP_Pagos_App {
 			if ( $b['baja'] !== $ayer ) continue;
 			$items[] = array(
 				'texto'   => 'Se dio de baja: ' . $b['cliente'],
-				'detalle' => $b['fin'] ? 'Mantiene acceso hasta el ' . wp_date( 'j M', strtotime( $b['fin'] ) ) . '.' : '',
+				'detalle' => trim( ( $b['fin'] ? 'Mantiene acceso hasta el ' . wp_date( 'j M', strtotime( $b['fin'] ) ) . '.' : '' ) . ( $b['motivo'] ? ' Motivo: ' . $b['motivo'] . '.' : '' ) ),
 				'urgente' => false,
 			);
 		}
@@ -341,6 +341,17 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
 			if ( $b['vence_ya'] ) $quitar++; else $prog++;
 		}
 
+		// Motivos que dieron al cancelar, de las bajas pedidas en los últimos 60 días.
+		$motivos = array();
+		$sin_resp = 0;
+		$desde60 = gmdate( 'Y-m-d', strtotime( $hoy . ' -60 days' ) );
+		foreach ( $todas as $b ) {
+			if ( ! $b['motivo'] || $b['baja'] < $desde60 ) continue;
+			if ( $b['motivo_k'] === 'sin_respuesta' ) { $sin_resp++; continue; }
+			$motivos[ $b['motivo'] ] = ( $motivos[ $b['motivo'] ] ?? 0 ) + 1;
+		}
+		arsort( $motivos );
+
 		$lista = array_filter( $todas, function ( $b ) use ( $v, $hoy ) {
 			if ( $v === 'bajas_hechas' ) return $b['hecho'];
 			if ( $b['hecho'] ) return false;
@@ -363,6 +374,15 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
    <div style="font-size:17px;font-weight:600">Nadie por quitar</div>
    <div class="lbl" style="margin-top:3px"><?php echo (int) $prog; ?> con el acceso aún vivo · <?php echo (int) $hoy_n; ?> bajas hoy</div>
   </div></div>
+ <?php endif; ?>
+ <?php if ( $motivos || $sin_resp ) : ?>
+  <div class="lbl" style="margin-top:16px">Por qué se van · últimos 60 días</div>
+  <div class="leg" style="margin-top:8px">
+  <?php foreach ( $motivos as $txt => $n ) : ?>
+   <div><b><?php echo (int) $n; ?></b> <?php echo esc_html( $txt ); ?></div>
+  <?php endforeach; ?>
+  <?php if ( $sin_resp ) : ?><div style="opacity:.7"><b><?php echo (int) $sin_resp; ?></b> prefirieron no responder</div><?php endif; ?>
+  </div>
  <?php endif; ?>
  </div>
 
@@ -419,7 +439,9 @@ Total factura: <?php echo esc_html( $eur( $r['club'] ) ); ?></div>
     <span class="pi<?php echo $b['vence_ya'] && ! $b['hecho'] ? ' al' : ''; ?>">quitar el <b><?php echo esc_html( wp_date( 'j M', strtotime( $b['fin'] ) ) ); ?></b></span>
    <?php endif; ?>
    <span class="pi"><?php echo $b['activa'] ? 'acceso vivo' : 'ya sin acceso'; ?></span>
+   <?php if ( $b['correo'] ) : ?><span class="pi">correo de gracias enviado</span><?php endif; ?>
   </div>
+  <?php if ( $b['motivo'] ) : ?><div class="acc" style="margin-top:12px">Motivo: <?php echo esc_html( $b['motivo'] ); ?></div><?php endif; ?>
 
   <?php $plan = class_exists( 'AUmbral_Planes' ) ? AUmbral_Planes::i()->plan_de( $b['email'] ) : ''; ?>
   <?php if ( $plan ) : ?><div class="acc" style="margin-top:12px"><?php echo esc_html( $plan ); ?></div><?php endif; ?>
